@@ -1,0 +1,11 @@
+{
+  "cliTax": [
+    {
+      "code": "zj7fTPVh4p",
+      "slug": "swarm",
+      "endpoint": "https://cli.tax/api/public/skills/{code}",
+      "doc": "https://cli.tax/zj7fTPVh4p",
+      "description": "swarm 智能体蜂群编排（CLI.Tax 发布）"
+    }
+  ]
+}
