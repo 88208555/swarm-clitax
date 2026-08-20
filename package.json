@@ -1,27 +1,21 @@
 {
-  "name": "cli-swarm",
-  "version": "0.1.0",
-  "description": "swarm 智能体蜂群编排多 IDE 安装器：从 cli.tax 自动拉取并分发到本机所有已装 IDE。",
-  "type": "module",
   "bin": {
-    "cli-swarm": "install.mjs"
+    "cli-swarm": "./cli.mjs"
   },
+  "description": "Swarm skill installer for CLI.Tax: orchestrate N sub-agents with enterprise org-chart rules.",
   "files": [
-    "install.mjs",
-    "sources.json",
-    "skills"
+    "cli.mjs",
+    "README.md",
+    "skill/SKILL.md",
+    "skill/skill.json"
   ],
-  "engines": {
-    "node": ">=18"
+  "license": "UNLICENSED",
+  "name": "cli-swarm",
+  "private": false,
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/88208555/swarm-clitax.git"
   },
-  "license": "MIT",
-  "keywords": [
-    "blueprint",
-    "skill",
-    "cli.tax",
-    "clitax",
-    "codex",
-    "agent",
-    "installer"
-  ]
+  "type": "module",
+  "version": "5.0.2"
 }
