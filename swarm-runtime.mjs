@@ -13,7 +13,7 @@ const ERROR_SCHEMA = "swarm.skill.error/1.0";
 const ORG_SCHEMA = "swarm.org-chart/1.0";
 const TASK_SCHEMA = "swarm.tasks/1.0";
 const COMPILER_NAME = "swarm";
-const COMPILER_VERSION = "v5.0.2";
+const COMPILER_VERSION = "v5.0.3";
 
 const PURE_OPERATIONS = new Set([
   "capabilities", "help", "intake", "org-chart", "blueprint-bridge", "dispatch", "claim",
