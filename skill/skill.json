@@ -6,5 +6,5 @@
   "name": "swarm",
   "schemaVersion": "swarm.skill.request/1.0",
   "type": "Skill",
-  "version": "v5.0.4"
+  "version": "v7.0.19"
 }

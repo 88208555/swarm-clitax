@@ -8,7 +8,12 @@
     "installer.mjs",
     "README.md",
     "skill/SKILL.md",
-    "skill/skill.json"
+    "skill/skill.json",
+    "skill/references/org-chart.md",
+    "skill/references/task-lifecycle.md",
+    "skill/references/traffic-light.md",
+    "skill/references/ops-heartbeat.md",
+    "skill/references/security-guard.md"
   ],
   "license": "UNLICENSED",
   "name": "cli-swarm",
@@ -18,5 +23,5 @@
     "url": "https://github.com/88208555/swarm-clitax.git"
   },
   "type": "module",
-  "version": "5.0.4"
+  "version": "7.0.19"
 }
