@@ -127,9 +127,19 @@ async function acquireStateLock(root) {
       return lockPath
     } catch (error) {
       if (!(error instanceof Error && error.code === 'EEXIST')) throw error
-      const status = await lstat(lockPath)
+      let status
+      try {
+        status = await lstat(lockPath)
+      } catch (statusError) {
+        if (statusError instanceof Error && statusError.code === 'ENOENT') continue
+        throw statusError
+      }
       if (Date.now() - status.mtimeMs > STALE_STATE_LOCK_MS) {
-        await unlink(lockPath)
+        try {
+          await unlink(lockPath)
+        } catch (unlinkError) {
+          if (!(unlinkError instanceof Error && unlinkError.code === 'ENOENT')) throw unlinkError
+        }
         continue
       }
       await new Promise((accept) => setTimeout(accept, LOCK_WAIT_MS))

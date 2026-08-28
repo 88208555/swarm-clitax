@@ -7,12 +7,12 @@
     "cli.mjs",
     "installer.mjs",
     "broker.mjs",
-    "swarm-coordinator-fs.mjs",
-    "swarm-coordinator-model.mjs",
-    "swarm-coordinator.mjs",
     "README.md",
     "skill/SKILL.md",
     "skill/skill.json",
+    "swarm-coordinator-fs.mjs",
+    "swarm-coordinator-model.mjs",
+    "swarm-coordinator.mjs",
     "skill/references/org-chart.md",
     "skill/references/task-lifecycle.md",
     "skill/references/traffic-light.md",
@@ -22,16 +22,10 @@
   ],
   "license": "UNLICENSED",
   "name": "cli-swarm",
-  "private": false,
-  "exports": {
-    "./coordinator": "./swarm-coordinator.mjs",
-    "./coordinator-fs": "./swarm-coordinator-fs.mjs",
-    "./runtime": "./swarm-runtime.mjs"
-  },
   "repository": {
     "type": "git",
     "url": "https://github.com/88208555/swarm-clitax.git"
   },
   "type": "module",
-  "version": "7.0.25"
+  "version": "7.0.28"
 }

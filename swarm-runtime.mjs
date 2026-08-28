@@ -7,7 +7,7 @@ const ORG_SCHEMA = "swarm.org-chart/1.0";
 const TASK_SCHEMA = "swarm.tasks/1.0";
 const TEST_EVIDENCE_SCHEMA = "cli.tax.test-evidence/1.0";
 const COMPILER_NAME = "swarm";
-const COMPILER_VERSION = "v7.0.25";
+const COMPILER_VERSION = "v7.0.28";
 const SHA256_PATTERN = /^[0-9a-f]{64}$/;
 const PURE_OPERATIONS = new Set([
   "capabilities", "help", "intake", "org-chart", "blueprint-bridge", "dispatch", "claim",
