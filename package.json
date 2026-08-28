@@ -2,10 +2,14 @@
   "bin": {
     "cli-swarm": "./cli.mjs"
   },
-  "description": "Swarm skill installer for CLI.Tax: orchestrate N sub-agents with enterprise org-chart rules.",
+  "description": "Swarm skill installer for CLI.Tax: orchestrate N sub-agents with persistent AutoCoord locks and dependency waits.",
   "files": [
     "cli.mjs",
     "installer.mjs",
+    "broker.mjs",
+    "swarm-coordinator-fs.mjs",
+    "swarm-coordinator-model.mjs",
+    "swarm-coordinator.mjs",
     "README.md",
     "skill/SKILL.md",
     "skill/skill.json",
@@ -13,15 +17,21 @@
     "skill/references/task-lifecycle.md",
     "skill/references/traffic-light.md",
     "skill/references/ops-heartbeat.md",
-    "skill/references/security-guard.md"
+    "skill/references/security-guard.md",
+    "skill/references/autocoord.md"
   ],
   "license": "UNLICENSED",
   "name": "cli-swarm",
   "private": false,
+  "exports": {
+    "./coordinator": "./swarm-coordinator.mjs",
+    "./coordinator-fs": "./swarm-coordinator-fs.mjs",
+    "./runtime": "./swarm-runtime.mjs"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/88208555/swarm-clitax.git"
   },
   "type": "module",
-  "version": "7.0.19"
+  "version": "7.0.25"
 }

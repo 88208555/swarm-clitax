@@ -7,7 +7,7 @@ const ORG_SCHEMA = "swarm.org-chart/1.0";
 const TASK_SCHEMA = "swarm.tasks/1.0";
 const TEST_EVIDENCE_SCHEMA = "cli.tax.test-evidence/1.0";
 const COMPILER_NAME = "swarm";
-const COMPILER_VERSION = "v7.0.19";
+const COMPILER_VERSION = "v7.0.25";
 const SHA256_PATTERN = /^[0-9a-f]{64}$/;
 const PURE_OPERATIONS = new Set([
   "capabilities", "help", "intake", "org-chart", "blueprint-bridge", "dispatch", "claim",
@@ -24,13 +24,14 @@ function finding(severity, ruleId, entityRef, message, evidence = {}) { return {
 function isObject(value) { return value !== null && typeof value === "object" && !Array.isArray(value); }
 function validId(value) { return typeof value === "string" && /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/.test(value); }
 const ORG_LAYERS = ["board", "management", "execution"];
-const ORG_ROLES = ["board", "dispatcher", "ops", "security-guard", "worker"];
-const ORG_FIXED_ROLES = new Set(["board", "dispatcher", "ops", "security-guard"]);
+const ORG_ROLES = ["board", "dispatcher", "ops", "security-guard", "coordinator", "worker"];
+const ORG_FIXED_ROLES = new Set(["board", "dispatcher", "ops", "security-guard", "coordinator"]);
 const ORG_PERMISSIONS = {
   board: ["dispatch", "accept", "reject", "stop", "reclaim", "replace"],
   dispatcher: ["dispatch", "reassign", "prioritize"],
   ops: ["heartbeat", "reclaim", "replace"],
   "security-guard": ["block", "alert", "quarantine"],
+  coordinator: ["conflict-scan", "lock", "queue", "baseline-handshake", "dependency-wait", "wake", "need-human"],
   worker: ["claim", "report", "request-help"],
 };
 function analyzeTaskGraph(tasks) {
@@ -77,6 +78,7 @@ function buildOrgChart(input = {}) {
         { agentId: "dispatcher", role: "dispatcher", title: "管理层·调度智能体", fixed: true },
         { agentId: "ops", role: "ops", title: "管理层·运维智能体", fixed: true },
         { agentId: "security-guard", role: "security-guard", title: "管理层·安全守卫智能体", fixed: true },
+        { agentId: "coordinator", role: "coordinator", title: "管理层·自动协调智能体", fixed: true },
       ],
       execution: Array.from({ length: workerCount }, (_, i) => ({ agentId: `worker-${String(i + 1).padStart(3, "0")}`,
         role: "worker", title: `执行层·子智能体 ${i + 1}`, fixed: false })),
@@ -385,8 +387,10 @@ function runMeta(operation, requestId) {
     return okResponse(requestId, {
       capabilities: { pure: true, stateless: true, networkRequired: false, filesystemRequired: false,
         operations: [...PURE_OPERATIONS], orgSchema: ORG_SCHEMA, taskSchema: TASK_SCHEMA,
-        testEvidenceSchema: TEST_EVIDENCE_SCHEMA, fixedAgents: ["board", "dispatcher", "ops", "security-guard"],
+        testEvidenceSchema: TEST_EVIDENCE_SCHEMA, fixedAgents: ["board", "dispatcher", "ops", "security-guard", "coordinator"],
         trafficLights: ["green", "yellow", "red"], stateHolder: "caller",
+        coordinator: { command: "cli-swarm local", capabilitiesOperation: "capabilities",
+          stateBoundary: ".coord", messageTypes: ["range-declare", "conflict-alert", "lock-granted", "lock-denied", "baseline-handshake", "need-human", "dependency-wait"] },
         workerRecommendation: "maximum acyclic dependency level width, capped at 50" },
       operationSchemas: OPERATION_SCHEMAS,
       skill: { name: COMPILER_NAME, version: COMPILER_VERSION },
@@ -401,7 +405,7 @@ function runPlanning(operation, requestId, input, request) {
     const findings = validateOrgChart(org);
     if (findings.length) return blockedResponse(requestId, request, findings);
     const blueprintEnabled = input.blueprintEnabled === true || text(input.blueprintEnabled).toLowerCase() === "yes";
-    return okResponse(requestId, { org, blueprintEnabled, fixedAgents: ["board", "dispatcher", "ops", "security-guard"], workerCount: org.layers.execution.length,
+    return okResponse(requestId, { org, blueprintEnabled, fixedAgents: ["board", "dispatcher", "ops", "security-guard", "coordinator"], workerCount: org.layers.execution.length,
       nextStep: blueprintEnabled
         ? { operation: "blueprint-bridge", instruction: "Blueprint is enabled: call blueprint-bridge to plan the project JSON into a traceable blueprint, then dispatch its tasks to the swarm." }
         : { operation: "dispatch", instruction: "Feed the project JSON; dispatch backlog tasks to workers by dependency order." } });

@@ -1,11 +1,11 @@
 ---
 name: swarm
-description: '通过智能体大脑调度创建 N 个子智能体，用企业级组织架构作为协作规则，围绕项目 JSON 实现任务派单/认领/回传，红绿灯状态 + 进度/错误汇报；固定运维智能体（心跳检测、回收卡死智能体、派新智能体继承任务）与安全守卫智能体（异常警报、恶意注入检测）。Orchestrate N sub-agents via an agent brain with enterprise org-chart rules: dispatch, claim, and return tasks from a project JSON, traffic-light status, and error/progress reporting; a fixed Ops agent (heartbeat, reclaim stuck agents, dispatch replacements that inherit tasks) plus a Security Guard (alerts, prompt-injection detection). Оркестрирует N субагентов через мозг-планировщик по правилам корпоративной оргструктуры: раздача, приёмка и возврат задач из JSON проекта, светофорный статус, отчёты об ошибках/прогрессе; фиксированный агент эксплуатации (пульс, отзыв зависших агентов, замена с наследованием задач) и агент безопасности (тревоги, защита от инъекций).'
+description: '通过智能体大脑调度创建 N 个子智能体，用企业级组织架构实现派单、认领、回传、红绿灯和进度汇报；固定运维、安全守卫与 AutoCoord 协调智能体负责心跳回收、注入检测、持久任务卡、冲突扫描、签名锁、基线握手、依赖等待、超时升级和死锁打断。Orchestrate N sub-agents with org-chart dispatch, claims, reports, traffic lights, Ops, Security Guard, and persistent AutoCoord task cards, signed locks, baseline handshakes, dependency waits, timeout escalation, and deadlock interruption. Оркестрирует N субагентов с оргструктурой, диспетчеризацией, отчётами, эксплуатацией, защитой и постоянным AutoCoord: карточки задач, подписанные блокировки, ожидания зависимостей, тайм-ауты и разрыв взаимоблокировок.'
 ---
 
 # swarm
 
-Package version: v7.0.19
+Package version: v7.0.25
 
 把「项目需求」编排为一支可观测、可自治、可安全运转的智能体蜂群。
 
@@ -19,7 +19,7 @@ Request schema: `swarm.skill.request/1.0`
 老板（任何 IDE / DSH）："我要并行处理 12 个模块的迁移"
   ↓
 1. 组织架构（org-chart）—— 按企业级层级生成协作规则：
-   决策层（老板/主智能体）→ 管理层（调度/运维/安全守卫）→ 执行层（N 个子智能体）
+   决策层（老板/主智能体）→ 管理层（调度/运维/安全守卫/协调器）→ 执行层（N 个子智能体）
   ↓
 2. 任务编排（dispatch）—— 读取项目 JSON，拆解为任务包：
    派单（dispatch）→ 认领（claim）→ 执行 → 回传（report）→ 决策层验收（accept）
@@ -34,7 +34,10 @@ Request schema: `swarm.skill.request/1.0`
 5. 安全守卫（security-guard）—— 固定安全智能体：
    异常行为警报 + 恶意信息注入检测（提示词注入/危险指令/越权请求）
   ↓
-6. 交付 —— 老板得到可观测的蜂群面板 + 全量任务回传 + 安全/运维审计报告
+6. 自动协调（coordinator）—— 固定协调智能体：
+   任务卡 → 冲突扫描 → 文件/构建锁 → 基线握手 → 依赖等待/唤醒 → 超时与死锁升级
+  ↓
+7. 交付 —— 老板得到可观测的蜂群面板 + 全量任务回传 + 安全/运维/协调审计报告
 ```
 
 **关键**：老板一句话 → 组织架构 → 任务派单 → 红绿灯执行 → 运维自治 + 安全守卫 → 可运转蜂群。全程框架不变，换项目只换 JSON。
@@ -64,18 +67,19 @@ After `capabilities`, read `officialCatalog`. Default allowlist is official skil
 ## 核心原则
 
 1. **组织即规则**：协作结构 = 企业级组织架构（决策/管理/执行三层），派单、审批、汇报都遵循层级规则。
-2. **JSON 即事实**：调用方保存完整 `tasks` 数组并在每次操作时原样回传；运行时无服务端状态存储。
+2. **事实分层**：远端纯运行时仍由调用方回传 `tasks`；本地 AutoCoord 的锁、等待、事件和任务卡只认 `.coord/` 台账，禁止依赖对话上下文。
 3. **红绿灯透明**：每个任务/智能体实时红/黄/绿状态，进度与错误持续上报，不隐藏阻塞。
 4. **运维自治**：心跳停止/卡死 = 自动收回 + 派新智能体 + 继承任务续跑，不中断整体。
 5. **安全守卫**：恶意注入、危险指令、越权请求在进入执行前被拦截并触发警报。
 6. **ArchGuard 块级证据**：仅当任务启用了架构合同，worker 每完成一个真实代码块就先执行 checkpoint；report 必须携带 contract digest、ledger entry digest、漂移灯和回滚结果，红灯任务禁止 accept。无合同的存量项目不伪造 checkpoint。
+7. **等待必须声明**：跨任务等待先登记 `dependency-wait`；挂起期间禁止读取，事件到达/任务死亡/超时/依赖成环都必须有明确出口。
 
 ## 五步实施流程
 
 ### 1. 组织架构（org-chart）
 生成三层规则：
 - 决策层：老板 / 主智能体（定目标、拆任务、验收）
-- 管理层：调度智能体（派单/协调）+ 运维智能体（心跳/回收/接替）+ 安全守卫（检测/警报）
+- 管理层：调度智能体（派单）+ 运维智能体（心跳/回收/接替）+ 安全守卫（检测/警报）+ 协调器（冲突/锁/等待/唤醒）
 - 执行层：N 个按需创建的子智能体（各自认领任务、执行、回传）
 
 ### 2. 任务编排（dispatch / claim / report / accept）
@@ -106,9 +110,9 @@ After `capabilities`, read `officialCatalog`. Default allowlist is official skil
   - 异常行为（高频重试/异常输入）触发警报
 - 拦截结果进入审计日志，老板可查看
 
-## 建议由调用方持久化的产物
+## 状态持久化边界
 
-运行时是纯函数，不创建目录或文件。调用方需要持久化时，可把每次返回的完整状态保存为：
+远端运行时是纯函数；本地 `cli-swarm local` 使用仓库 `.coord/` 作为唯一协调事实源。任务卡、锁、队列、事件、等待、裁决与审计由协调器原子写入，聊天只能引用这些记录。调用方自己的任务视图可保存为：
 
 ```
 swarm-run/
@@ -129,6 +133,8 @@ swarm-run/
 | S2 | 依赖闭包 | 已实现 | 缺失依赖、未验收依赖、重复 ID 与依赖环均阻断派单。 |
 | S3 | 智能 worker 建议 | 已实现 | 按无环依赖图最大层宽计算，最多 50；不负责创建实际子智能体。 |
 | S4 | 完整状态传递 | 已实现（调用方持有） | 所有变更操作返回完整 `tasks`；运行时不持久化、不可只合并单个 task。 |
+| S5 | AutoCoord 台账与三锁协议 | 已实现（本地协调器） | `.coord/` 原子台账、签名 TTL 文件锁、构建/部署排队和基线握手；Aimlock 写入钩子重验活动租约。 |
+| S6 | 依赖等待与死锁防护 | 已实现（本地协调器） | 结构化等待、事件唤醒、任务死亡即告、超时升级、依赖环主动打断和未声明等待检测。 |
 
 Blueprint 桥接已生成远端可验证的完整 IR；`planningStatus` 是业务字段，不覆盖响应信封的 `status: succeeded`。
 
@@ -139,6 +145,7 @@ Blueprint 桥接已生成远端可验证的完整 IR；`planningStatus` 是业�
 - `references/traffic-light.md` —— TestEvidence 合同、通过条件与红黄绿判定
 - `references/ops-heartbeat.md` —— 心跳、回收、接替、继承与调用方调度边界
 - `references/security-guard.md` —— 显式安全检查、拦截结果与当前检测边界
+- `references/autocoord.md` —— 任务卡、冲突规则、锁、基线、依赖等待、超时与死锁协议
 
 ## 安全规则
 
@@ -147,15 +154,15 @@ Blueprint 桥接已生成远端可验证的完整 IR；`planningStatus` 是业�
 - 任务回传结果进草稿/审计，不覆盖未验收数据
 - 项目 JSON 中的敏感信息（密钥/凭据）不进入子智能体上下文
 
-## 反馈通道
+## 受限调用与自动评价闭环
 
-评价只能由 IDE / 智能体自动回传，严禁人类干预：
+- IDE / 智能体必须通过本包 `invoke` 或 JSON-stdin `broker` 调用，不得直接拼装技能 HTTP 请求，也不得读取 BrainClient token。
+- broker 从 `CLITAX_BRAIN_CLIENT_TOKEN_FILE` 读取身份；macOS/Linux 文件必须为当前 broker 账户所有且权限 `0600`，Windows 文件必须位于受限 `%LOCALAPPDATA%\CLI.Tax\broker` 目录。
+- broker 只需要 Brain Client HTTPS、受限身份文件和调用方显式传入的路径，本身不需要完整磁盘访问。若要保证 IDE 无法读取身份文件，必须把 broker 放进独立低权限系统账户或沙箱服务，并只暴露受限 IPC；broker 与 IDE 同账户运行时，`0600` 不能隔离二者，禁止声称令牌已隔离。
+- broker 只用 `Authorization: BrainClient …` 发起一次 runtime 请求。HTTP 成功后必须保留响应顶层原始 `feedbackReceiptId`、`feedbackInvocationId` 和 `feedbackEvaluation.digest`，不得生成、猜测、复用或跨调用转移。
+- Brain Client 服务端必须严格绑定请求/响应的 `requestId` 和 `schemaVersion`，再根据真实状态、验证结果、服务端耗时与 findings 生成并持久化权威评分、评语和摘要。broker 不得生成分数或评语。
+- 同一次 runtime 请求在服务端事务内生成并持久化评价，再返回 `feedbackReceiptId`、`feedbackInvocationId` 和权威摘要；broker 只验证已提交回执，不发起第二次评价写入。`not-reported`、验证不完整、P0/P1 findings、`blocked` 或 `failed` 都不得生成好评。
+- 缺少凭证或 ID、身份不匹配、摘要不匹配、响应非法以及任何 HTTP 失败都必须显式失败，不得静默、不重试成重复评价。
+- 本地 CLI 不提供手工评分或评语提交命令，人类不得选择技能分数或填写技能评价；日常聊天不属于评价协议。
 
-1. 仅当一次真实技能 HTTP 调用成功，并且响应顶层包含 `feedbackInvocationId` 时，调用方才可进入评价流程。
-2. 调用方必须使用本次响应的原始 ID，按真实执行结果生成整数分数（0–100）和真实评语，再自动执行：
-   `npx cli-swarm@latest feedback <feedbackInvocationId> <score> <comment...>`
-3. 自动回传必须使用会员中心 Brain 客户端生成的同一身份文件，并通过 `CLITAX_BRAIN_CLIENT_TOKEN_FILE` 指向该 `0600` 文件；服务端以会员账号实名入库，不接受匿名评价。
-4. 禁止伪造、猜测、复用或跨调用转移 `feedbackInvocationId`；禁止让人类选择分数、填写评价或代为执行命令。
-5. 缺少会员客户端身份或 ID、分数越界、空评语、响应不合法及任何 HTTP 失败都必须视为回传失败，不得记为成功。
-
-日常交流走技能详情页的独立聊天通道，不使用 `feedback` 命令，也不计入评价、评分或首页跑马灯。
+调用示例：`npx cli-swarm@latest invoke <operation> '<JSON对象>'`。IDE 集成可向 `npx cli-swarm@latest broker` 的 stdin 发送 `{"operation":"capabilities","input":{}}`。
