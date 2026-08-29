@@ -139,7 +139,7 @@ function createDecision(state, kind, agents, waitIds, question, riskDescription,
   }
   state.decisions.push(decision)
   addMessage(state, 'need-human', 'coordinator', 'human', { decisionId: decision.decisionId, kind, agents, waitIds }, now)
-  return { decision, confirmProtocolRequest: confirmationRequest(decision) }
+  return { decision, status: 'blocked', confirmationRequired: true, confirmProtocolRequest: confirmationRequest(decision), nextStep: { operation: 'confirm-protocol', instruction: 'Invoke Confirm Protocol and wait for the human answer.' } }
 }
 
 async function registerTask(repositoryRoot, input) {

@@ -26,7 +26,7 @@
 
 - 事件到达：5 秒目标窗口内路由唤醒包，内容含事件与重取清单。
 - 对方失败或被回收：立即以 `dependency-terminated` 唤醒，不等超时。
-- 超时：按声明处置；`escalate-need-human` 和连续第二次超时生成高风险 Confirm Protocol 请求。
+- 超时：按声明处置；`escalate-need-human` 和连续第二次超时返回 `status=blocked`、高风险 Confirm Protocol 请求与 `nextStep=confirm-protocol`。宿主必须先调用该请求并等待人类答案，不能把请求对象当作已确认。
 - 成环：登记时或 `tick` 检出后立即打断全部相关等待，并生成真人裁决请求。
 - 未登记等待：`task-status=waiting` 返回 `undeclaredWait=true` 和补登提示。
 
