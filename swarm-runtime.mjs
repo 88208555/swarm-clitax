@@ -1,13 +1,9 @@
 // swarm v7.0.10：自包含、无外部依赖的确定性蜂群编排运行时。
 const REQUEST_SCHEMA = "swarm.skill.request/1.0";
 const ALLOWED_EXTERNAL_ENDPOINTS = { blueprint: "https://cli.tax/wvz6zmRWmX" };
-const RESPONSE_SCHEMA = "swarm.skill.response/1.0";
-const ERROR_SCHEMA = "swarm.skill.error/1.0";
-const ORG_SCHEMA = "swarm.org-chart/1.0";
-const TASK_SCHEMA = "swarm.tasks/1.0";
-const TEST_EVIDENCE_SCHEMA = "cli.tax.test-evidence/1.0";
-const COMPILER_NAME = "swarm";
-const COMPILER_VERSION = "v7.0.33";
+const RESPONSE_SCHEMA = "swarm.skill.response/1.0"; const ERROR_SCHEMA = "swarm.skill.error/1.0";
+const ORG_SCHEMA = "swarm.org-chart/1.0"; const TASK_SCHEMA = "swarm.tasks/1.0"; const TEST_EVIDENCE_SCHEMA = "cli.tax.test-evidence/1.0";
+const COMPILER_NAME = "swarm"; const COMPILER_VERSION = "v7.0.34";
 const SHA256_PATTERN = /^[0-9a-f]{64}$/;
 const PURE_OPERATIONS = new Set([
   "capabilities", "help", "intake", "org-chart", "blueprint-bridge", "dispatch", "claim",
@@ -26,14 +22,8 @@ function validId(value) { return typeof value === "string" && /^[a-zA-Z0-9][a-zA
 const ORG_LAYERS = ["board", "management", "execution"];
 const ORG_ROLES = ["board", "dispatcher", "ops", "security-guard", "coordinator", "worker"];
 const ORG_FIXED_ROLES = new Set(["board", "dispatcher", "ops", "security-guard", "coordinator"]);
-const ORG_PERMISSIONS = {
-  board: ["dispatch", "accept", "reject", "stop", "reclaim", "replace"],
-  dispatcher: ["dispatch", "reassign", "prioritize"],
-  ops: ["heartbeat", "reclaim", "replace"],
-  "security-guard": ["block", "alert", "quarantine"],
-  coordinator: ["conflict-scan", "lock", "queue", "baseline-handshake", "dependency-wait", "wake", "need-human"],
-  worker: ["claim", "report", "request-help"],
-};
+const ORG_PERMISSIONS = { board: ["dispatch", "accept", "reject", "stop", "reclaim", "replace"], dispatcher: ["dispatch", "reassign", "prioritize"], ops: ["heartbeat", "reclaim", "replace"],
+  "security-guard": ["block", "alert", "quarantine"], coordinator: ["conflict-scan", "lock", "queue", "baseline-handshake", "dependency-wait", "wake", "need-human"], worker: ["claim", "report", "request-help"], };
 function analyzeTaskGraph(tasks) {
   const findings = [];
   const ids = new Set();
@@ -71,15 +61,11 @@ function buildOrgChart(input = {}) {
     recommendedWorkerCount = analysis.recommendedWorkerCount ?? undefined;
     recommendationFindings = analysis.findings;
   }
-  const org = { schemaVersion: ORG_SCHEMA, projectName,
-    layers: {
-      board: [{ agentId: "board", role: "board", title: "决策层·老板/主智能体" }],
+  const org = { schemaVersion: ORG_SCHEMA, projectName, layers: { board: [{ agentId: "board", role: "board", title: "决策层·老板/主智能体" }],
       management: [
         { agentId: "dispatcher", role: "dispatcher", title: "管理层·调度智能体", fixed: true },
-        { agentId: "ops", role: "ops", title: "管理层·运维智能体", fixed: true },
-        { agentId: "security-guard", role: "security-guard", title: "管理层·安全守卫智能体", fixed: true },
-        { agentId: "coordinator", role: "coordinator", title: "管理层·自动协调智能体", fixed: true },
-      ],
+        { agentId: "ops", role: "ops", title: "管理层·运维智能体", fixed: true }, { agentId: "security-guard", role: "security-guard", title: "管理层·安全守卫智能体", fixed: true },
+        { agentId: "coordinator", role: "coordinator", title: "管理层·自动协调智能体", fixed: true }, ],
       execution: Array.from({ length: workerCount }, (_, i) => ({ agentId: `worker-${String(i + 1).padStart(3, "0")}`,
         role: "worker", title: `执行层·子智能体 ${i + 1}`, fixed: false })),
     }, permissions: ORG_PERMISSIONS };
@@ -129,10 +115,8 @@ function validateProjectJson(project) {
 }
 function buildTasks(project, org) {
   return (project.tasks ?? []).map((task, index) => ({
-    taskId: validId(task.taskId) ? task.taskId : `task-${String(index + 1).padStart(4, "0")}`,
-    title: text(task.title || task.name || `任务 ${index + 1}`), owner: null, status: "backlog",
-    priority: text(task.priority || "normal"), dependsOn: Array.isArray(task.dependsOn) ? task.dependsOn : [],
-    assignedBy: null, claimedAt: null, reportedAt: null, report: null, progressPercent: 0,
+    taskId: validId(task.taskId) ? task.taskId : `task-${String(index + 1).padStart(4, "0")}`, title: text(task.title || task.name || `任务 ${index + 1}`), owner: null, status: "backlog",
+    priority: text(task.priority || "normal"), dependsOn: Array.isArray(task.dependsOn) ? task.dependsOn : [], assignedBy: null, claimedAt: null, reportedAt: null, report: null, progressPercent: 0,
     progressNote: "", inheritedFrom: null }));
 }
 function dispatchTask(tasks, taskId, workerId, actorRole) {
@@ -266,49 +250,35 @@ function replaceWorker(org, agents, tasks, deadWorkerId, newWorkerId = null) {
   replacement.currentTaskId = inheritedTasks[0] ?? null;
   return { ok: true, replacement: replacement.agentId, inheritedTasks };
 }
-const INTAKE_QUESTIONS = [
-  { id: "goal", prompt: "What must the swarm accomplish? List the parallel/ordered work items or point to the project JSON.", required: true, example: "12 个模块迁移：A1..A12，依赖 A1→A2→A3，其余并行" },
+const INTAKE_QUESTIONS = [ { id: "goal", prompt: "What must the swarm accomplish? List the parallel/ordered work items or point to the project JSON.", required: true, example: "12 个模块迁移：A1..A12，依赖 A1→A2→A3，其余并行" },
   { id: "workerCount", prompt: "How many worker sub-agents should the brain create?", required: false, example: "6" },
   { id: "orgTier", prompt: "Any org-chart constraints? (default: board → dispatcher/ops/security-guard → workers)", required: false, example: "默认三层即可" },
   { id: "securityPolicy", prompt: "Security policy: strict (block injections) or observe (alert only)?", required: false, example: "strict" },
-  { id: "blueprintEnabled", prompt: "Use Blueprint to plan tasks before dispatch? (yes: tasks are planned by the Blueprint skill for traceable acceptance; no: direct dispatch)", required: false, example: "no" },
-];
+  { id: "blueprintEnabled", prompt: "Use Blueprint to plan tasks before dispatch? (yes: tasks are planned by the Blueprint skill for traceable acceptance; no: direct dispatch)", required: false, example: "no" }, ];
 const OPERATION_CATALOG = Object.freeze([...PURE_OPERATIONS].map((operation) => ({ operation, summary: operation })));
 const stringSchema = (extra = {}) => ({ type: "string", ...extra });
 const arraySchema = (items, extra = {}) => ({ type: "array", items, ...extra });
 const objectSchema = (properties, required = [], extra = {}) => ({ type: "object", properties, required, additionalProperties: false, ...extra });
 const anyObjectSchema = { type: "object" };
 const nullableStringSchema = { type: ["string", "null"] };
-const evidenceSchema = objectSchema({
-  schemaVersion: { const: TEST_EVIDENCE_SCHEMA }, evidenceId: stringSchema({ minLength: 1 }),
-  kind: { enum: ["test", "build", "lint", "security", "benchmark"] }, runner: { enum: ["local", "trusted-runner"] },
-  command: stringSchema({ minLength: 1 }), exitCode: { type: "integer" }, durationMs: { type: "number", minimum: 0 },
-  summary: stringSchema({ minLength: 1 }), artifactSha256: stringSchema({ pattern: SHA256_PATTERN.source }),
-}, ["schemaVersion", "evidenceId", "kind", "runner", "command", "exitCode", "durationMs", "summary"], { additionalProperties: true });
+const evidenceSchema = objectSchema({ schemaVersion: { const: TEST_EVIDENCE_SCHEMA }, evidenceId: stringSchema({ minLength: 1 }),
+  kind: { enum: ["test", "build", "lint", "security", "benchmark"] }, runner: { enum: ["local", "trusted-runner"] }, command: stringSchema({ minLength: 1 }), exitCode: { type: "integer" }, durationMs: { type: "number", minimum: 0 },
+  summary: stringSchema({ minLength: 1 }), artifactSha256: stringSchema({ pattern: SHA256_PATTERN.source }), }, ["schemaVersion", "evidenceId", "kind", "runner", "command", "exitCode", "durationMs", "summary"], { additionalProperties: true });
 const reportSchema = objectSchema({ output: stringSchema(), evidence: arraySchema(evidenceSchema) }, [], {
   anyOf: [{ properties: { output: stringSchema({ minLength: 1 }) }, required: ["output"] }, { required: ["evidence"] }],
 });
-const taskSchema = objectSchema({
-  taskId: stringSchema({ minLength: 1 }), title: stringSchema(), owner: nullableStringSchema,
-  status: { enum: [...TASK_STATUSES] }, priority: stringSchema(), dependsOn: arraySchema(stringSchema()),
-  assignedBy: nullableStringSchema, claimedAt: nullableStringSchema, reportedAt: nullableStringSchema,
-  report: { anyOf: [{ type: "null" }, reportSchema] }, progressPercent: { type: "number" }, progressNote: stringSchema(),
-  inheritedFrom: nullableStringSchema, trafficLight: { enum: ["green", "yellow", "red"] },
-}, ["taskId", "title", "status", "dependsOn"], { additionalProperties: true });
+const taskSchema = objectSchema({ taskId: stringSchema({ minLength: 1 }), title: stringSchema(), owner: nullableStringSchema,
+  status: { enum: [...TASK_STATUSES] }, priority: stringSchema(), dependsOn: arraySchema(stringSchema()), assignedBy: nullableStringSchema, claimedAt: nullableStringSchema, reportedAt: nullableStringSchema,
+  report: { anyOf: [{ type: "null" }, reportSchema] }, progressPercent: { type: "number" }, progressNote: stringSchema(), inheritedFrom: nullableStringSchema, trafficLight: { enum: ["green", "yellow", "red"] }, }, ["taskId", "title", "status", "dependsOn"], { additionalProperties: true });
 const projectTaskSchema = objectSchema({ taskId: stringSchema({ minLength: 1 }), title: stringSchema({ minLength: 1 }),
   name: stringSchema(), priority: stringSchema(), dependsOn: arraySchema(stringSchema()) }, ["taskId", "title"], { additionalProperties: true });
-const agentSchema = objectSchema({ agentId: stringSchema({ minLength: 1 }), role: { enum: ORG_ROLES }, title: stringSchema(),
-  fixed: { type: "boolean" }, status: { enum: ["green", "yellow", "red", "dead"] }, lastHeartbeatAt: stringSchema({ format: "date-time" }),
-  heartbeatMisses: { type: "integer", minimum: 0 }, currentTaskId: nullableStringSchema,
-  progressPercent: { type: "number" }, progressNote: stringSchema() }, ["agentId", "role", "status"], { additionalProperties: true });
+const agentSchema = objectSchema({ agentId: stringSchema({ minLength: 1 }), role: { enum: ORG_ROLES }, title: stringSchema(), fixed: { type: "boolean" }, status: { enum: ["green", "yellow", "red", "dead"] }, lastHeartbeatAt: stringSchema({ format: "date-time" }),
+  heartbeatMisses: { type: "integer", minimum: 0 }, currentTaskId: nullableStringSchema, progressPercent: { type: "number" }, progressNote: stringSchema() }, ["agentId", "role", "status"], { additionalProperties: true });
 const nextSchema = objectSchema({ operation: { type: ["string", "null"] }, instruction: stringSchema() }, ["operation", "instruction"]);
 const responseBase = { schemaVersion: { const: RESPONSE_SCHEMA }, requestId: stringSchema({ minLength: 1 }) };
 const succeededSchema = (properties, required = []) => objectSchema({ ...responseBase, status: { const: "succeeded" }, ...properties }, ["schemaVersion", "requestId", "status", ...required]);
-const blockedSchema = objectSchema({ ...responseBase, status: { const: "blocked" }, brainMode: { type: "null" }, requestedBrainMode: stringSchema(),
-  brainUsed: { const: false }, revision: { type: "null" }, validation: anyObjectSchema, errorSchema: { const: ERROR_SCHEMA } },
-["schemaVersion", "requestId", "status", "brainMode", "requestedBrainMode", "brainUsed", "revision", "validation"]);
-const failedSchema = objectSchema({ ...responseBase, status: { const: "failed" }, errorSchema: { const: ERROR_SCHEMA }, error: anyObjectSchema },
-  ["schemaVersion", "requestId", "status", "errorSchema", "error"]);
+const blockedSchema = objectSchema({ ...responseBase, status: { const: "blocked" }, brainMode: { type: "null" }, requestedBrainMode: stringSchema(), brainUsed: { const: false }, revision: { type: "null" }, validation: anyObjectSchema, errorSchema: { const: ERROR_SCHEMA } }, ["schemaVersion", "requestId", "status", "brainMode", "requestedBrainMode", "brainUsed", "revision", "validation"]);
+const failedSchema = objectSchema({ ...responseBase, status: { const: "failed" }, errorSchema: { const: ERROR_SCHEMA }, error: anyObjectSchema }, ["schemaVersion", "requestId", "status", "errorSchema", "error"]);
 const operationSchema = (input, inputRequired, output, outputRequired) => ({ input: objectSchema(input, inputRequired),
   output: { type: "object", oneOf: [succeededSchema(output, outputRequired), blockedSchema, failedSchema] } });
 const tasksInput = { tasks: arraySchema(taskSchema), taskId: stringSchema({ minLength: 1 }) };
@@ -330,6 +300,53 @@ const OPERATION_SCHEMAS = Object.freeze({
   heartbeat: operationSchema({ tasks: arraySchema(taskSchema), workerId: stringSchema({ minLength: 1 }) }, ["tasks", "workerId"], { active: { const: true }, lastSeenAt: stringSchema({ format: "date-time" }), workerId: stringSchema(), assignedTaskIds: arraySchema(stringSchema()), stateNote: stringSchema() }, ["active", "lastSeenAt", "workerId", "assignedTaskIds", "stateNote"]),
   reclaim: operationSchema({ ...tasksInput, reason: stringSchema() }, ["tasks", "taskId"], { reclaimed: { const: true }, taskId: stringSchema(), reason: stringSchema(), ...taskStateOutput }, ["reclaimed", "taskId", "reason", "task", "tasks", "stateNote"]),
 });
+function matchesInputType(value, type) {
+  if (type === "object") return isObject(value);
+  if (type === "array") return Array.isArray(value);
+  if (type === "null") return value === null;
+  if (type === "integer") return Number.isInteger(value);
+  return typeof value === type && (type !== "number" || Number.isFinite(value));
+}
+function inputSchemaFindings(value, schema, entityRef = "input") {
+  const findings = [], reject = (rule, message) => findings.push(finding("P0", `INPUT_${rule}`, entityRef, message));
+  if (schema.type && !(Array.isArray(schema.type) ? schema.type : [schema.type]).some((type) => matchesInputType(value, type))) {
+    reject("TYPE", `Expected ${JSON.stringify(schema.type)}`); return findings;
+  }
+  if (Object.hasOwn(schema, "const") && value !== schema.const) reject("CONST", `Expected ${JSON.stringify(schema.const)}`);
+  if (schema.enum && !schema.enum.includes(value)) reject("ENUM", `Expected one of ${JSON.stringify(schema.enum)}`);
+  if (schema.anyOf && !schema.anyOf.some((option) => inputSchemaFindings(value, option, entityRef).length === 0)) reject("ANY_OF", "Input does not match an allowed shape");
+  if (typeof value === "string") {
+    if (schema.minLength !== undefined && Array.from(value).length < schema.minLength) reject("MIN_LENGTH", `Minimum length is ${schema.minLength}`);
+    if (schema.pattern && !new RegExp(schema.pattern).test(value)) reject("PATTERN", `Expected pattern ${schema.pattern}`);
+    if (schema.format === "date-time" && !validInputDateTime(value)) reject("FORMAT", "Expected an RFC 3339 date-time");
+  }
+  if (typeof value === "number") {
+    if (schema.minimum !== undefined && value < schema.minimum) reject("MINIMUM", `Minimum is ${schema.minimum}`);
+    if (schema.maximum !== undefined && value > schema.maximum) reject("MAXIMUM", `Maximum is ${schema.maximum}`);
+  }
+  if (Array.isArray(value)) {
+    if (schema.minItems !== undefined && value.length < schema.minItems) reject("MIN_ITEMS", `Minimum item count is ${schema.minItems}`);
+    if (schema.items) value.forEach((item, index) => findings.push(...inputSchemaFindings(item, schema.items, `${entityRef}[${index}]`)));
+  }
+  if (isObject(value)) {
+    if (schema.required) for (const key of schema.required) if (!Object.hasOwn(value, key)) findings.push(finding("P0", "INPUT_REQUIRED", `${entityRef}.${key}`, "Required property is missing"));
+    for (const [key, item] of Object.entries(value)) {
+      if (schema.properties && Object.hasOwn(schema.properties, key)) findings.push(...inputSchemaFindings(item, schema.properties[key], `${entityRef}.${key}`));
+      else if (schema.additionalProperties === false) findings.push(finding("P0", "INPUT_UNKNOWN_PROPERTY", `${entityRef}.${key}`, "Property is not supported by this operation"));
+    }
+  }
+  return findings;
+}
+function validInputDateTime(value) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})[tT](\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:[zZ]|([+-])(\d{2}):(\d{2}))$/.exec(value);
+  if (!match) return false;
+  const [, year, month, day, hour, minute, second, offsetSign, offsetHour, offsetMinute] = match;
+  const utcMinute = Number(hour) * 60 + Number(minute) - (offsetHour === undefined ? 0 : (offsetSign === "-" ? -1 : 1) * (Number(offsetHour) * 60 + Number(offsetMinute)));
+  const yearNumber = Number(year), days = [31, yearNumber % 4 === 0 && (yearNumber % 100 !== 0 || yearNumber % 400 === 0) ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][Number(month) - 1];
+  return Number(month) >= 1 && Number(month) <= 12 && Number(day) >= 1 && Number(day) <= days
+    && Number(hour) <= 23 && Number(minute) <= 59 && (Number(second) <= 59 || (Number(second) === 60 && ((utcMinute % 1440) + 1440) % 1440 === 1439))
+    && (offsetHour === undefined || (Number(offsetHour) <= 23 && Number(offsetMinute) <= 59));
+}
 function validateRequest(request) {
   const findings = [];
   if (!isObject(request)) return [finding("P0", "REQUEST_OBJECT", "request", "request must be an object", { example: { schemaVersion: REQUEST_SCHEMA, requestId: "req-1", operation: "capabilities" } })];
@@ -338,6 +355,7 @@ function validateRequest(request) {
   }
   if (!text(request.requestId)) findings.push(finding("P0", "REQUEST_REQUIRED_FIELD", "request.requestId", "requestId is required", { example: { requestId: "req-1" } }));
   if (!text(request.operation)) findings.push(finding("P0", "REQUEST_REQUIRED_FIELD", "request.operation", "operation is required", { example: { operation: "capabilities" } }));
+  if (Object.hasOwn(OPERATION_SCHEMAS, request.operation)) findings.push(...inputSchemaFindings(Object.hasOwn(request, "input") ? request.input : {}, OPERATION_SCHEMAS[request.operation].input));
   return findings;
 }
 function blueprintIdFromName(projectName) {
@@ -362,22 +380,13 @@ function buildBlueprintBridge(input, requestId) {
   const rootEdges = roots.map((task, index) => ({ id: `edge-entry-${index + 1}`, fromNodeId: "swarm-entry", toNodeId: nodeIds.get(task.taskId), type: "control" }));
   const dependencyEdges = tasks.flatMap((task, taskIndex) => (task.dependsOn ?? []).map((dependencyId, dependencyIndex) =>
     ({ id: `edge-dependency-${taskIndex + 1}-${dependencyIndex + 1}`, fromNodeId: nodeIds.get(dependencyId), toNodeId: nodeIds.get(task.taskId), type: "control" })));
-  const blueprint = {
-    schemaVersion: "blueprint.ir/1.0", blueprintId: blueprintIdFromName(projectName), title: projectName,
-    revision: 0, entryNodeId: "swarm-entry",
-    baseline: { summary: `Swarm plan for ${projectName}`, facts: [
-        { id: "fact-goal", status: "confirmed", statement: `Swarm goal: ${projectName}` },
-        ...tasks.map((task, index) => ({ id: `fact-task-${index + 1}`, status: "confirmed", statement: `Task ${task.taskId}: ${text(task.title).trim()}` })),
-      ] },
+  const blueprint = { schemaVersion: "blueprint.ir/1.0", blueprintId: blueprintIdFromName(projectName), title: projectName, revision: 0, entryNodeId: "swarm-entry",
+    baseline: { summary: `Swarm plan for ${projectName}`, facts: [ { id: "fact-goal", status: "confirmed", statement: `Swarm goal: ${projectName}` }, ...tasks.map((task, index) => ({ id: `fact-task-${index + 1}`, status: "confirmed", statement: `Task ${task.taskId}: ${text(task.title).trim()}` })), ] },
     domains: [{ id: "swarm-domain", name: "Swarm orchestration" }],
     modules: [{ id: "swarm-tasks", domainId: "swarm-domain", name: "Dispatched tasks" }],
     nodes: [{ id: "swarm-entry", entry: true, moduleId: "swarm-tasks", title: "Start swarm", inputs: [], outputs: [], requirementRefs: ["fact-goal"] }, ...taskNodes],
-    edges: [...rootEdges, ...dependencyEdges],
-    acceptanceCriteria: [
-      { id: "accept-entry", statement: "Swarm dispatch starts from the validated project", nodeRefs: ["swarm-entry"] },
-      ...tasks.map((task, index) => ({ id: `accept-task-${index + 1}`, statement: `Task ${task.taskId} is reported with passing evidence and accepted`, nodeRefs: [nodeIds.get(task.taskId)] })),
-    ],
-  };
+    edges: [...rootEdges, ...dependencyEdges], acceptanceCriteria: [ { id: "accept-entry", statement: "Swarm dispatch starts from the validated project", nodeRefs: ["swarm-entry"] },
+      ...tasks.map((task, index) => ({ id: `accept-task-${index + 1}`, statement: `Task ${task.taskId} is reported with passing evidence and accepted`, nodeRefs: [nodeIds.get(task.taskId)] })), ], };
   return { blueprintRequest: { input: { schemaVersion: "blueprint.skill.request/1.0", requestId: `${requestId}-blueprint`,
     operation: "compile-inline", input: { blueprint } } } };
 }
@@ -386,14 +395,9 @@ function runMeta(operation, requestId) {
   if (operation === "capabilities") {
     return okResponse(requestId, {
       capabilities: { pure: true, stateless: true, networkRequired: false, filesystemRequired: false,
-        operations: [...PURE_OPERATIONS], orgSchema: ORG_SCHEMA, taskSchema: TASK_SCHEMA,
-        testEvidenceSchema: TEST_EVIDENCE_SCHEMA, fixedAgents: ["board", "dispatcher", "ops", "security-guard", "coordinator"],
-        trafficLights: ["green", "yellow", "red"], stateHolder: "caller",
-        coordinator: { command: "cli-swarm local", capabilitiesOperation: "capabilities",
-          stateBoundary: ".coord", messageTypes: ["range-declare", "conflict-alert", "lock-granted", "lock-denied", "baseline-handshake", "need-human", "dependency-wait"] },
-        workerRecommendation: "maximum acyclic dependency level width, capped at 50" },
-      operationSchemas: OPERATION_SCHEMAS,
-      skill: { name: COMPILER_NAME, version: COMPILER_VERSION },
+        operations: [...PURE_OPERATIONS], orgSchema: ORG_SCHEMA, taskSchema: TASK_SCHEMA, testEvidenceSchema: TEST_EVIDENCE_SCHEMA, fixedAgents: ["board", "dispatcher", "ops", "security-guard", "coordinator"],
+        trafficLights: ["green", "yellow", "red"], stateHolder: "caller", coordinator: { command: "cli-swarm local", capabilitiesOperation: "capabilities", stateBoundary: ".coord", messageTypes: ["range-declare", "conflict-alert", "lock-granted", "lock-denied", "baseline-handshake", "need-human", "dependency-wait"] },
+        workerRecommendation: "maximum acyclic dependency level width, capped at 50" }, operationSchemas: OPERATION_SCHEMAS, skill: { name: COMPILER_NAME, version: COMPILER_VERSION },
       nextStep: { operation: "intake", instruction: "Ask the intake questions, then build the org-chart and dispatch tasks." } });
   }
   if (operation === "help") return okResponse(requestId, { help: { name: COMPILER_NAME, version: COMPILER_VERSION, operations: OPERATION_CATALOG }, nextStep: { operation: "intake", instruction: "Ask the intake questions one at a time." } });
@@ -443,12 +447,9 @@ function runTaskMutation(operation, requestId, input, request) {
 function runObservation(operation, requestId, input, request) {
   if (operation === "swarm-status") {
     const tasks = Array.isArray(input.tasks) ? input.tasks : [], agents = Array.isArray(input.agents) ? input.agents : [];
-    return okResponse(requestId, { tasks: tasks.map((task) => ({ ...task, trafficLight: taskTrafficLight(task) })), agents: agents.map((agent) => ({ ...agent })),
-      summary: { tasks: tasks.length,
-        green: tasks.filter((t) => taskTrafficLight(t) === "green").length,
-        yellow: tasks.filter((t) => taskTrafficLight(t) === "yellow").length,
-        red: tasks.filter((t) => taskTrafficLight(t) === "red").length,
-        workersDead: agents.filter((a) => a.role === "worker" && a.status === "dead").length },
+    return okResponse(requestId, { tasks: tasks.map((task) => ({ ...task, trafficLight: taskTrafficLight(task) })), agents: agents.map((agent) => ({ ...agent })), summary: { tasks: tasks.length,
+        green: tasks.filter((t) => taskTrafficLight(t) === "green").length, yellow: tasks.filter((t) => taskTrafficLight(t) === "yellow").length,
+        red: tasks.filter((t) => taskTrafficLight(t) === "red").length, workersDead: agents.filter((a) => a.role === "worker" && a.status === "dead").length },
       stateNote: "Tasks must be passed as-is from the previous response; state flows through mutations.",
       nextStep: { operation: "ops", instruction: "Ops monitors heartbeats; security-guard scans inputs." } });
   }
@@ -492,11 +493,6 @@ export async function run(request) {
   if (["swarm-status", "traffic-light", "security-check", "validate-json", "heartbeat", "reclaim"].includes(operation)) return runObservation(operation, requestId, input, request);
   return { schemaVersion: RESPONSE_SCHEMA, requestId, status: "failed", errorSchema: ERROR_SCHEMA, error: { code: "UNSUPPORTED_OPERATION", message: `Unsupported operation: ${operation}` } };
 }
-export {
-  COMPILER_VERSION, ORG_SCHEMA, TASK_SCHEMA, TEST_EVIDENCE_SCHEMA, PURE_OPERATIONS, OPERATION_CATALOG,
-  INTAKE_QUESTIONS, ORG_PERMISSIONS, buildOrgChart, validateOrgChart, securityCheck,
-  analyzeTaskGraph, buildTasks, dispatchTask, claimTask, reportTask, acceptTask, taskTrafficLight,
-  validateTestEvidence, normalizeTestEvidence, hasPassingTestEvidence, buildBlueprintBridge,
-  buildAgents, recordHeartbeat, scanHeartbeats, reclaimTasks, replaceWorker,
-  okResponse, blockedResponse, finding,
-};
+export { COMPILER_VERSION, ORG_SCHEMA, TASK_SCHEMA, TEST_EVIDENCE_SCHEMA, PURE_OPERATIONS, OPERATION_CATALOG, INTAKE_QUESTIONS, ORG_PERMISSIONS, buildOrgChart, validateOrgChart, securityCheck,
+  analyzeTaskGraph, buildTasks, dispatchTask, claimTask, reportTask, acceptTask, taskTrafficLight, validateTestEvidence, normalizeTestEvidence, hasPassingTestEvidence, buildBlueprintBridge, buildAgents, recordHeartbeat, scanHeartbeats, reclaimTasks, replaceWorker,
+  okResponse, blockedResponse, finding, };

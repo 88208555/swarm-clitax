@@ -17,6 +17,17 @@ const WAIT_EVENT_ACTIONS = new Set(['wake-with-package'])
 const TASK_STATUSES = new Set(['active', 'waiting', 'completed', 'failed', 'reclaimed'])
 const SHA256_PATTERN = /^[0-9a-f]{64}$/
 
+function findTask(state, input) {
+  const taskId = identifier(input.taskId, 'taskId')
+  const task = state.tasks.find((item) => item.taskId === taskId)
+  if (!task) coordinatorError('SWARM_COORD_TASK_NOT_FOUND', `task ${taskId} is not registered`)
+  if (task.agentId !== identifier(input.agentId, 'agentId')
+    || task.chainId !== identifier(input.chainId, 'chainId')) {
+    coordinatorError('SWARM_COORD_TASK_AUTHORITY_DENIED', 'task ownership does not match')
+  }
+  return task
+}
+
 function requireString(value, label) {
   if (typeof value !== 'string' || !value.trim()) {
     coordinatorError('SWARM_COORD_FIELD_REQUIRED', `${label} is required`)
@@ -52,6 +63,7 @@ function normalizeTaskCard(input, now = new Date().toISOString()) {
   }
   return {
     schemaVersion: 'swarm.task-card/1.0',
+    supersedesTaskId: Object.hasOwn(input, 'supersedesTaskId') ? identifier(input.supersedesTaskId, 'supersedesTaskId') : null,
     taskId: identifier(input.taskId, 'taskId'),
     agentId: identifier(input.agentId, 'agentId'),
     chainId: identifier(input.chainId, 'chainId'),
@@ -116,7 +128,7 @@ function requirementConflicts(left, right) {
 function scanTaskConflicts(candidate, tasks) {
   const conflicts = []
   for (const task of tasks) {
-    if (task.taskId === candidate.taskId || task.status === 'completed' || task.status === 'failed') continue
+    if (task.taskId === candidate.taskId || ['completed', 'failed', 'reclaimed'].includes(task.status)) continue
     const scopes = matchingScopes(candidate, task)
     if (scopes.length) conflicts.push({ type: 'file-range', risk: 'medium', taskId: task.taskId, evidence: scopes })
     const sameTarget = candidate.deployTarget !== null && candidate.deployTarget === task.deployTarget
@@ -143,6 +155,12 @@ function normalizeLockRequest(input) {
   if (!Number.isInteger(input.ttlSeconds) || input.ttlSeconds < 1 || input.ttlSeconds > 3_600) {
     coordinatorError('SWARM_COORD_LOCK_TTL_INVALID', 'ttlSeconds must be 1..3600')
   }
+  const hasQueueTimeout = Object.hasOwn(input, 'queueTimeoutMs')
+  if ((input.queueOnConflict || hasQueueTimeout)
+    && (!Number.isSafeInteger(input.queueTimeoutMs) || input.queueTimeoutMs < 1
+      || !Number.isFinite(new Date(Date.now() + input.queueTimeoutMs).getTime()))) {
+    coordinatorError('SWARM_COORD_QUEUE_TIMEOUT_REQUIRED', 'queueOnConflict requires an explicit positive queueTimeoutMs')
+  }
   const paths = lockType === 'file'
     ? requireStringArray(input.paths, 'paths', { nonEmpty: true }).map((path) => relativePath(path))
     : []
@@ -160,6 +178,7 @@ function normalizeLockRequest(input) {
     paths,
     ttlSeconds: input.ttlSeconds,
     queueOnConflict: input.queueOnConflict,
+    ...(hasQueueTimeout ? { queueTimeoutMs: input.queueTimeoutMs } : {}),
     baselineHandshakeId: input.baselineHandshakeId,
   }
 }
@@ -173,7 +192,8 @@ function locksConflict(request, lock) {
 }
 
 function normalizeWait(input, now = new Date().toISOString()) {
-  if (!Number.isInteger(input.expectedWithinMs) || input.expectedWithinMs < 1) {
+  if (!Number.isSafeInteger(input.expectedWithinMs) || input.expectedWithinMs < 1
+    || !Number.isFinite(new Date(Date.parse(now) + input.expectedWithinMs).getTime())) {
     coordinatorError('SWARM_COORD_WAIT_DURATION_INVALID', 'expectedWithinMs must be a positive integer')
   }
   if (!WAIT_EVENT_ACTIONS.has(input.onEvent) || !WAIT_TIMEOUT_ACTIONS.has(input.onTimeout)) {
@@ -258,6 +278,7 @@ function validateInputShape(input, schema) {
 }
 
 export {
+  findTask,
   coordinationMessage,
   detectWaitCycles,
   locksConflict,
