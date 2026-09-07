@@ -5,7 +5,7 @@ description: '通过智能体大脑调度创建 N 个子智能体，用企业级
 
 # swarm
 
-Package version: v7.0.35
+Package version: v7.0.36
 
 把「项目需求」编排为一支可观测、可自治、可安全运转的智能体蜂群。
 
