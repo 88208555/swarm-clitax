@@ -1,13 +1,16 @@
 import { randomUUID } from 'node:crypto'
 import { coordinatorError, identifier, readCoordinationState, withCoordinationState } from './swarm-coordinator-fs.mjs'
-import { coordinationMessage, detectWaitCycles, findTask, normalizeWait, requireString, requireTaskStatus } from './swarm-coordinator-model.mjs'
+import { DECISION_SCHEMA_TASK, coordinationMessage, decisionTargetsTask, decisionTasks, detectWaitCycles, findTask, normalizeWait, requireString, requireTaskStatus } from './swarm-coordinator-model.mjs'
+
+import { assertTaskRequestsCompleted } from './swarm-task-routing-model.mjs'
 
 const LOCAL_SCHEMA = 'swarm.coordinator-local/1.0'
 const WAIT_POLL_MS = 250
+const BASELINE_BLOCKED_REASON = 'baseline-mismatch'
 const TERMINAL_STATUSES = new Set(['completed', 'failed', 'reclaimed'])
 
 function pendingDecision(state, task) {
-  return state.decisions.some((decision) => decision.status === 'pending' && decision.agents.includes(task.agentId))
+  return state.decisions.some((decision) => decisionTargetsTask(decision, task) && decision.status === 'pending')
 }
 
 function hasActiveWait(state, task) {
@@ -36,7 +39,7 @@ function wakeWait(state, wait, resolution, event, now) {
   wait.resolution = event
   const task = state.tasks.find((item) => item.taskId === wait.taskId)
   if (task && task.status === 'waiting' && !hasActiveWait(state, task) && !pendingDecision(state, task)) {
-    task.status = 'active'
+    task.status = task.blockedReason === BASELINE_BLOCKED_REASON ? 'blocked' : 'active'
     task.updatedAt = now
   }
   if (resolution === 'event-received') {
@@ -55,7 +58,9 @@ function routeEvent(state, event) {
 }
 
 function confirmationRequest(decision) {
-  const options = decision.agents.map((agentId) => ({ id: 'resume:' + agentId, label: '先恢复 ' + agentId, hint: '唤醒该智能体先解除依赖' }))
+  const options = decision.schemaVersion === DECISION_SCHEMA_TASK
+    ? decision.taskIds.map((taskId) => ({ id: 'resume-task:' + taskId, label: '先恢复任务 ' + taskId, hint: '仅恢复所选任务，其他任务保持原状态' }))
+    : decision.agents.map((agentId) => ({ id: 'resume:' + agentId, label: '先恢复 ' + agentId, hint: '仅在对应一个任务时恢复' }))
   options.push({ id: 'abort', label: '终止等待', hint: '终止相关等待并保持任务阻塞' })
   return { schemaVersion: 'confirm-protocol.skill.request/1.0', requestId: 'confirm-' + decision.decisionId,
     operation: 'interaction-request', input: { interaction: {
@@ -65,19 +70,20 @@ function confirmationRequest(decision) {
     } } }
 }
 
-function createDecision(state, kind, agents, waitIds, question, riskDescription, now) {
-  const decision = { schemaVersion: 'swarm.coord-decision/1.0', decisionId: 'decision-' + randomUUID(),
-    kind, agents: [...new Set(agents)], waitIds: [...new Set(waitIds)], question, riskDescription,
+function createDecision(state, kind, agents, waitIds, question, riskDescription, now, taskIds) {
+  const decision = { schemaVersion: DECISION_SCHEMA_TASK, decisionId: 'decision-' + randomUUID(),
+    kind, agents: [...new Set(agents)], taskIds, waitIds: [...new Set(waitIds)], question, riskDescription,
     status: 'pending', answer: null, actorId: null, createdAt: now, resolvedAt: null }
+  const targets = decisionTasks(state, decision)
   state.decisions.push(decision)
-  for (const task of state.tasks.filter((item) => agents.includes(item.agentId) && !TERMINAL_STATUSES.has(item.status))) {
+  for (const task of targets.filter((item) => !TERMINAL_STATUSES.has(item.status))) {
     task.status = 'blocked'
-    task.blockedReason = 'human-decision'
+    if (task.blockedReason !== BASELINE_BLOCKED_REASON) task.blockedReason = 'human-decision'
     task.updatedAt = now
   }
   const waits = state.waits.filter((wait) => waitIds.includes(wait.waitId))
     .map(({ waitId, waiter, waitFor, event, purpose, deadlineAt }) => ({ waitId, waiter, waitFor, event, purpose, deadlineAt }))
-  addMessage(state, 'need-human', 'coordinator', 'human', { decisionId: decision.decisionId, kind, agents, waits }, now)
+  addMessage(state, 'need-human', 'coordinator', 'human', { decisionId: decision.decisionId, kind, agents, taskIds, waits }, now)
   return { decision, status: 'blocked', confirmationRequired: true, confirmProtocolRequest: confirmationRequest(decision),
     nextStep: { operation: 'confirm-protocol', instruction: 'Invoke Confirm Protocol and wait for the human answer.' } }
 }
@@ -90,7 +96,7 @@ function applyCycles(state, now) {
     if (!waits.length) continue
     requests.push(createDecision(state, 'dependency-cycle', agents, waits.map((wait) => wait.waitId),
       '检测到依赖等待成环：' + agents.join(' → ') + '。请选择先恢复的智能体。',
-      '依赖成环会导致全部相关任务无限等待，必须由真人决定执行顺序。', now))
+      '依赖成环会导致全部相关任务无限等待，必须由真人决定执行顺序。', now, [...new Set(waits.map((wait) => wait.taskId))]))
     const dependencies = waits.map(({ waiter, waitFor, event, purpose }) => ({ waiter, waitFor, event, purpose }))
     for (const wait of waits) wakeWait(state, wait, 'deadlock-interrupted', { cycle, dependencies }, now)
   }
@@ -173,6 +179,7 @@ async function taskStatus(repositoryRoot, input) {
     if (status === 'active' && (pendingDecision(state, task) || hasActiveWait(state, task) || task.status === 'blocked')) {
       coordinatorError('SWARM_COORD_TASK_BLOCKED', 'resolve dependencies or the human decision before activation')
     }
+    if (status === 'completed' && task.routing) assertTaskRequestsCompleted(state, task)
     const now = new Date().toISOString()
     const undeclaredWait = status === 'waiting' && !hasActiveWait(state, task)
     task.status = undeclaredWait ? 'blocked' : status
@@ -212,7 +219,7 @@ function applyTimeouts(state, now) {
     if (wait.onTimeout === 'escalate-need-human' || count >= 2) {
       decisions.push(createDecision(state, 'dependency-timeout', [wait.waiter, wait.waitFor], [wait.waitId],
         wait.waiter + ' 等待 ' + wait.waitFor + ' 的 ' + wait.event + ' 已超时，请选择后续动作。',
-        '依赖事件未在声明期限内到达，继续静默等待可能导致任务停滞。', now))
+        '依赖事件未在声明期限内到达，继续静默等待可能导致任务停滞。', now, [wait.taskId]))
       wakePackages.push(wakeWait(state, wait, 'timeout-interrupted', { timeoutCount: count }, now))
     } else {
       const resolution = wait.onTimeout === 'abandon-wait' ? 'timeout-abandoned' : 'timeout-continued'
@@ -222,29 +229,42 @@ function applyTimeouts(state, now) {
   return { timedOut, decisions, wakePackages }
 }
 
+function selectedDecisionTask(state, decision, answer) {
+  const tasks = decisionTasks(state, decision).filter((task) => !TERMINAL_STATUSES.has(task.status))
+  if (answer === 'abort') return null
+  if (answer.startsWith('resume-task:')) {
+    const selected = tasks.find((task) => answer === 'resume-task:' + task.taskId)
+    if (selected) return selected
+  } else if (answer.startsWith('resume:')) {
+    const matching = tasks.filter((task) => answer === 'resume:' + task.agentId)
+    if (matching.length === 1) return matching[0]
+    if (matching.length > 1) {
+      coordinatorError('SWARM_COORD_DECISION_ANSWER_AMBIGUOUS', 'agent owns multiple decision tasks; select a task explicitly')
+    }
+  }
+  coordinatorError('SWARM_COORD_DECISION_ANSWER_INVALID', 'answer must select a nonterminal task declared by this decision')
+}
+
 async function resolveHuman(repositoryRoot, input) {
   return withCoordinationState(repositoryRoot, async (state) => {
     const decisionId = identifier(input.decisionId, 'decisionId')
     const decision = state.decisions.find((item) => item.decisionId === decisionId)
     if (!decision || decision.status !== 'pending') coordinatorError('SWARM_COORD_DECISION_NOT_PENDING', 'decision is not pending')
     const answer = requireString(input.answer, 'answer')
-    if (![...decision.agents.map((agent) => 'resume:' + agent), 'abort'].includes(answer)) {
-      coordinatorError('SWARM_COORD_DECISION_ANSWER_INVALID', 'answer is not a declared option')
-    }
+    const selectedTask = selectedDecisionTask(state, decision, answer)
     const now = new Date().toISOString()
     decision.status = 'resolved'
     decision.answer = answer
     decision.actorId = identifier(input.actorId, 'actorId')
     decision.resolvedAt = now
-    for (const task of state.tasks.filter((item) => answer === 'resume:' + item.agentId && !TERMINAL_STATUSES.has(item.status))) {
-      if (!pendingDecision(state, task)) {
-        task.status = hasActiveWait(state, task) ? 'waiting' : 'active'
-        task.blockedReason = null
-        task.updatedAt = now
-      }
+    if (selectedTask && !pendingDecision(state, selectedTask) && selectedTask.blockedReason === 'human-decision') {
+      selectedTask.status = hasActiveWait(state, selectedTask) ? 'waiting' : 'active'
+      selectedTask.blockedReason = null
+      selectedTask.updatedAt = now
     }
     return { state, output: { schemaVersion: LOCAL_SCHEMA, decision },
-      audit: [{ event: 'decision-resolved', decisionId, answer, actorId: decision.actorId }] }
+      audit: [{ event: 'decision-resolved', decisionId, answer, actorId: decision.actorId,
+        taskId: selectedTask === null ? null : selectedTask.taskId }] }
   })
 }
 
@@ -266,13 +286,13 @@ async function waitForEvent(repositoryRoot, input, tick) {
     const task = findTask(before, input)
     const wait = before.waits.find((item) => item.waitId === waitId && item.taskId === task.taskId)
     if (!wait) coordinatorError('SWARM_COORD_WAIT_NOT_FOUND', 'wait is not registered for this task')
-    const pending = before.decisions.filter((item) => item.status === 'pending' && item.agents.includes(task.agentId))
+    const pending = before.decisions.filter((item) => decisionTargetsTask(item, task) && item.status === 'pending')
     if (wait.status === 'active' && pending.length) return { schemaVersion: LOCAL_SCHEMA, status: 'blocked',
       wait, wakePackage: null, decisions: pending, confirmProtocolRequests: pending.map(confirmationRequest) }
     if (wait.status !== 'active') {
       const message = before.messages.findLast((item) => item.payload.waitId === waitId && item.payload.schemaVersion === 'swarm.wake-package/1.0')
       if (!message) coordinatorError('SWARM_COORD_WAKE_PACKAGE_MISSING', 'resolved wait has no wake package')
-      const decisions = before.decisions.filter((item) => item.status === 'pending' && item.agents.includes(task.agentId))
+      const decisions = before.decisions.filter((item) => decisionTargetsTask(item, task) && item.status === 'pending')
       return { schemaVersion: LOCAL_SCHEMA, status: decisions.length || task.status !== 'active' ? 'blocked' : 'resolved',
         wait, wakePackage: message.payload, decisions, confirmProtocolRequests: decisions.map(confirmationRequest) }
     }

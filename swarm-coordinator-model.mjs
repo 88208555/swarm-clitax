@@ -17,6 +17,53 @@ const WAIT_EVENT_ACTIONS = new Set(['wake-with-package'])
 const TASK_STATUSES = new Set(['active', 'waiting', 'completed', 'failed', 'reclaimed'])
 const SHA256_PATTERN = /^[0-9a-f]{64}$/
 
+const DECISION_SCHEMA_TASK = 'swarm.coord-decision/2.0'
+const DECISION_SCHEMA_AGENT = 'swarm.coord-decision/1.0'
+
+function validateDecisionIdentifiers(value, label) {
+  const normalized = requireStringArray(value, label, { nonEmpty: true }).map((entry) => identifier(entry, label))
+  if (normalized.some((entry, index) => entry !== value[index])) {
+    coordinatorError('SWARM_COORD_DECISION_SCHEMA_INVALID', 'decision identifiers must use their canonical form')
+  }
+}
+
+function validateDecisionScope(decision) {
+  if (!decision || typeof decision !== 'object' || Array.isArray(decision)
+    || ![DECISION_SCHEMA_TASK, DECISION_SCHEMA_AGENT].includes(decision.schemaVersion)) {
+    coordinatorError('SWARM_COORD_DECISION_SCHEMA_INVALID', 'decision scope schema is unsupported')
+  }
+  if (!['pending', 'resolved'].includes(decision.status)) {
+    coordinatorError('SWARM_COORD_DECISION_SCHEMA_INVALID', 'decision status is invalid')
+  }
+  validateDecisionIdentifiers(decision.agents, 'decision.agents')
+  if (decision.schemaVersion === DECISION_SCHEMA_TASK) {
+    validateDecisionIdentifiers(decision.taskIds, 'decision.taskIds')
+  } else if (Object.hasOwn(decision, 'taskIds')) {
+    coordinatorError('SWARM_COORD_DECISION_SCHEMA_INVALID', 'legacy agent decisions cannot declare task scope')
+  }
+}
+
+function decisionTargetsTask(decision, task) {
+  validateDecisionScope(decision)
+  return decision.schemaVersion === DECISION_SCHEMA_TASK
+    ? decision.taskIds.includes(task.taskId) : decision.agents.includes(task.agentId)
+}
+
+function decisionResumesTask(decision, task) {
+  return decisionTargetsTask(decision, task) && decision.status === 'resolved'
+    && (decision.answer === 'resume-task:' + task.taskId || decision.answer === 'resume:' + task.agentId)
+}
+
+function decisionTasks(state, decision) {
+  validateDecisionScope(decision)
+  const tasks = state.tasks.filter((task) => decisionTargetsTask(decision, task))
+  if (decision.schemaVersion === DECISION_SCHEMA_TASK
+    && (tasks.length !== decision.taskIds.length || tasks.some((task) => !decision.agents.includes(task.agentId)))) {
+    coordinatorError('SWARM_COORD_DECISION_TARGET_INVALID', 'decision targets must identify registered tasks owned by its agents')
+  }
+  return tasks
+}
+
 function findTask(state, input) {
   const taskId = identifier(input.taskId, 'taskId')
   const task = state.tasks.find((item) => item.taskId === taskId)
@@ -278,6 +325,10 @@ function validateInputShape(input, schema) {
 }
 
 export {
+  DECISION_SCHEMA_TASK,
+  decisionTargetsTask,
+  decisionResumesTask,
+  decisionTasks,
   findTask,
   coordinationMessage,
   detectWaitCycles,

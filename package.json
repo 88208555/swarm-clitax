@@ -23,13 +23,18 @@
     "swarm-coordinator-model.mjs",
     "swarm-coordinator-waits.mjs",
     "swarm-coordinator.mjs",
+    "swarm-task-routing-model.mjs",
+    "swarm-task-routing-schemas.mjs",
+    "swarm-task-routing.mjs",
+    "swarm-task-handoff.mjs",
     "swarm-runtime.mjs",
     "skill/references/org-chart.md",
     "skill/references/task-lifecycle.md",
     "skill/references/traffic-light.md",
     "skill/references/ops-heartbeat.md",
     "skill/references/security-guard.md",
-    "skill/references/autocoord.md"
+    "skill/references/autocoord.md",
+    "skill/references/task-routing.md"
   ],
   "license": "UNLICENSED",
   "name": "cli-swarm",
@@ -38,5 +43,5 @@
     "url": "https://github.com/88208555/swarm-clitax.git"
   },
   "type": "module",
-  "version": "7.0.37"
+  "version": "7.0.38"
 }

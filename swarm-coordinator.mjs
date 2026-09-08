@@ -1,16 +1,19 @@
+import { TASK_ROUTING_SCHEMAS } from './swarm-task-routing-schemas.mjs'
+import { TASK_ROUTING_HANDLERS } from './swarm-task-routing.mjs'
 import { createHash, randomUUID, verify } from 'node:crypto'
 import { lstat, readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { LEASE_SCHEMA, coordinatorError, identifier, leasePayload, readCoordinationState,
   withCoordinationReadLock, withCoordinationState, writeSignedLease } from './swarm-coordinator-fs.mjs'
 import { findTask, locksConflict, normalizeLockRequest, normalizeTaskCard, requireString,
-  scanTaskConflicts, validateInputShape } from './swarm-coordinator-model.mjs'
+  scanTaskConflicts, validateInputShape, decisionTargetsTask } from './swarm-coordinator-model.mjs'
 import { addMessage, eventRecord, routeEvent, createDecision, applyCycles, applyTimeouts,
   assertTaskRunnable, pendingDecision, hasActiveWait, dependencyWait, publishEvent, taskStatus,
   resolveHuman, cancelWait, waitForEvent } from './swarm-coordinator-waits.mjs'
 
 const LOCAL_SCHEMA = 'swarm.coordinator-local/1.0'
 const OPERATIONS = Object.freeze([
+  ...Object.keys(TASK_ROUTING_SCHEMAS),
   'capabilities', 'register-task', 'conflict-scan', 'lock-acquire', 'lock-renew',
   'lock-release', 'lock-queue-status', 'baseline-handshake', 'dependency-wait', 'event-publish',
   'task-status', 'tick', 'resolve-human', 'wait-for-event', 'wait-cancel', 'status',
@@ -46,6 +49,7 @@ const WAIT_SCHEMA = objectSchema(
     refetchPaths: stringArray },
 )
 const OPERATION_SCHEMAS = Object.freeze({
+  ...TASK_ROUTING_SCHEMAS,
   capabilities: objectSchema([], {}),
   'register-task': TASK_CARD_SCHEMA,
   'conflict-scan': objectSchema(['taskId'], { taskId: string }),
@@ -82,7 +86,7 @@ function validateReplacement(state, card) {
   if (card.supersedesTaskId === null) return
   const previous = state.tasks.find((task) => task.taskId === card.supersedesTaskId)
   const pending = previous && state.decisions.some((decision) => decision.status === 'pending'
-    && decision.agents.includes(previous.agentId))
+    && decisionTargetsTask(decision, previous))
   const covered = previous && previous.taskScope.every((path) => card.taskScope.some((scope) => (
     path === scope || path.startsWith(scope + '/')
   )))
@@ -123,7 +127,7 @@ async function conflictScan(repositoryRoot, input) {
       other.status = 'waiting'
       return createDecision(state, 'requirement-conflict', [task.agentId, other.agentId], [],
         `任务 ${task.taskId} 与 ${conflict.taskId} 的需求声明冲突，请选择先恢复的智能体。`,
-        '矛盾需求同时执行会产生不可预测的覆盖，必须由真人裁决。', new Date().toISOString())
+        '矛盾需求同时执行会产生不可预测的覆盖，必须由真人裁决。', new Date().toISOString(), [task.taskId, other.taskId])
     })
     return { state, output: { schemaVersion: LOCAL_SCHEMA, taskId, conflicts, messages,
       decisions, zeroConflict: conflicts.length === 0 }, audit: [{ event: 'conflict-scan', taskId, conflictCount: conflicts.length }] }
@@ -213,7 +217,7 @@ function rejectQueuedLock(state, queued, reason, now) {
   const result = createDecision(state, 'lock-queue-timeout', [queued.request.agentId], [],
     '锁队列 ' + queued.queueId + ' 已于 ' + queued.deadlineAt + ' 超时；资源 '
       + queued.request.resource + '，路径 ' + queued.request.paths.join(', ') + '。请核查占锁方后决定恢复或终止任务。',
-    '原队列不会再次授锁。恢复后必须提交带新明确等待上限的申请，不能把超时当作已取得锁。', now)
+    '原队列不会再次授锁。恢复后必须提交带新明确等待上限的申请，不能把超时当作已取得锁。', now, [queued.request.taskId])
   queued.decisionId = result.decision.decisionId
   queued.confirmProtocolRequest = result.confirmProtocolRequest
   return result
@@ -405,6 +409,7 @@ async function coordinatorStatus(repositoryRoot) {
 }
 
 const HANDLERS = Object.freeze({
+  ...TASK_ROUTING_HANDLERS,
   'register-task': registerTask,
   'conflict-scan': conflictScan,
   'lock-acquire': acquireLock,
@@ -444,3 +449,5 @@ export {
   OPERATIONS,
   executeCoordinatorOperation,
 }
+
+export { decisionTargetsTask, decisionResumesTask } from './swarm-coordinator-model.mjs'
