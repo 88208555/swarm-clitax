@@ -16,13 +16,13 @@
 
 ## “通过证据”定义
 
-任务的 `report.evidence` 必须非空，每一项都通过上述结构校验且 `exitCode === 0`，才算 passing TestEvidence。`accept: true` 没有满足该条件时会被阻断。
+任务的 `report.evidence` 必须非空且exitCode为0；accept还要求task.validationContext.validationRunId等于taskId，并复用Validator验证subject、artifactSha256、receipt签名、结果与有效期。缺少可信公钥或任一不匹配均阻断。
 
 ## 灯色规则
 
 | 任务状态 | 条件 | 灯色 |
 |---|---|---|
-| `reported` | 有 passing TestEvidence | green |
+| `reported` | 有 passing TestEvidence，尚未验收 | yellow |
 | `reported` | 缺少 passing TestEvidence | yellow |
 | `accepted` | 有 passing TestEvidence | green |
 | `accepted` | 无 passing TestEvidence | red |
@@ -33,7 +33,7 @@
 
 ## 证据信任边界
 
-当前 Swarm 只校验证据字段和 `exitCode`。它不验证签名、receipt、subject 绑定或 runner 身份；`runner: trusted-runner` 仅是字段值，不得据此声称已完成密码学证明。调用方仍需在 Validator 或受信执行层完成强证据绑定。
+Swarm与Validator共享签名验证实现；单独填写runner字段不能通过。validationContext必须由宿主预先锁定，纯函数传入的角色和任务清单仍需宿主认证，不得宣称远端纯函数拥有持久任务身份控制。
 
 ## 实现依据
 

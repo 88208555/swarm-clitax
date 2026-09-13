@@ -1,11 +1,11 @@
 ---
 name: swarm
-description: '通过智能体大脑调度创建 N 个子智能体，用企业级组织架构实现派单、认领、回传、红绿灯和进度汇报；固定运维、安全守卫与 AutoCoord 协调智能体负责心跳回收、注入检测、持久任务卡、冲突扫描、签名锁、基线握手、依赖等待、超时升级和死锁打断。Orchestrate N sub-agents with org-chart dispatch, claims, reports, traffic lights, Ops, Security Guard, and persistent AutoCoord task cards, signed locks, baseline handshakes, dependency waits, timeout escalation, and deadlock interruption. Оркестрирует N субагентов с оргструктурой, диспетчеризацией, отчётами, эксплуатацией, защитой и постоянным AutoCoord: карточки задач, подписанные блокировки, ожидания зависимостей, тайм-ауты и разрыв взаимоблокировок.'
+description: '按业务必要性编排实质性独立任务，默认主代理执行；确需委派时才创建最少子代理，提供派单、证据验收、持久任务与冲突协调。Use for justified independent business work with task dispatch, evidence acceptance and durable coordination; keep simple work with the main agent.'
 ---
 
 # swarm
 
-Package version: v7.0.38
+Package version: v7.0.39
 
 把「项目需求」编排为一支可观测、可自治、可安全运转的智能体蜂群。
 
@@ -13,151 +13,60 @@ Endpoint: https://cli.tax/zj7fTPVh4p
 
 Request schema: `swarm.skill.request/1.0`
 
-## 全链路总流程（老板视角 → 可运转蜂群）
+## 创建前强制判断
 
-```
-老板（任何 IDE / DSH）："我要并行处理 12 个模块的迁移"
-  ↓
-1. 组织架构（org-chart）—— 按企业级层级生成协作规则：
-   决策层（老板/主智能体）→ 管理层（调度/运维/安全守卫/协调器）→ 执行层（N 个子智能体）
-  ↓
-2. 任务编排（dispatch）—— 读取项目 JSON，拆解为任务包：
-   派单（dispatch）→ 认领（claim）→ 执行 → 回传（report）→ 决策层验收（accept）
-  ↓
-3. 红绿灯（traffic-light）—— 每个任务/智能体实时状态：
-   🟢 健康 / 🟡 风险 / 🔴 阻塞；进度与错误持续上报
-  ↓
-4. 运维接管（ops）—— 固定运维智能体：
-   心跳检测 → 发现卡住/死亡（心跳停止）→ 自主收回 → 派遣新智能体接替
-   → 新智能体继承原任务列表继续执行
-  ↓
-5. 安全守卫（security-guard）—— 固定安全智能体：
-   异常行为警报 + 恶意信息注入检测（提示词注入/危险指令/越权请求）
-  ↓
-6. 自动协调（coordinator）—— 固定协调智能体：
-   任务卡 → 冲突扫描 → 文件/构建锁 → 基线握手 → 依赖等待/唤醒 → 超时与死锁升级
-  ↓
-7. 交付 —— 老板得到可观测的蜂群面板 + 全量任务回传 + 安全/运维/协调审计报告
-```
+默认单代理。仅因文件多、启用智能目标、调用蜂群、方便汇总或想省事，均不得创建子代理。先遵守下方执行完整性共同规则，记录业务必要性；简单查询、改名、少量修改、单条命令和例行检查由主代理完成。
 
-**关键**：老板一句话 → 组织架构 → 任务派单 → 红绿灯执行 → 运维自治 + 安全守卫 → 可运转蜂群。全程框架不变，换项目只换 JSON。
+管理、调度、运维、安全守卫、协调器是逻辑职责，由主代理承担。组织图不会要求为这些职责创建额外智能体。用户禁止委派时只使用本地台账与门禁。
 
-## 何时使用
+## 按需编排
 
-- 用户有多个可并行/依赖编排的子任务（模块迁移、批量审核、多端开发、数据清洗、并行研究）
-- 用户需要企业级分工、任务认领回传、进度红绿灯的可观测协作
-- 用户需要自动回收卡死智能体并让继任者继承任务的自治能力
-- 用户需要内置安全守卫（防注入、异常警报）的多智能体系统
-- 用户希望任务先由 Blueprint 技能规划为可追溯蓝图，再交给蜂群执行（可选协同）
+1. 调用 capabilities，仅加载与当前业务匹配的技能。主代理保留原目标和验收责任。
+2. org-chart 根据每项任务的 facts 判断必要性；缺少业务事实时返回0个worker和single-agent。workerCount仅为0–50的上限，不能覆盖必要性、任务宽度与范围冲突检查。
+3. 仅对批准的独立实质性交付创建最少执行者；先复用已有负责人。主代理必须同时有独立工作可推进，禁止空等、重复查阅和递归扩编。
+4. dispatch再次验证facts和依赖证据；claim、report、accept依次推进，任何失败保持显式阻断。
+5. 子代理回传后主代理整合并验收全部原始要求。成本抱怨不等于停止；不得以组织图、派单成功、部分测试或报告代替交付。
 
-不要用于：单智能体就能完成的简单任务（用单 agent 即可）；与任务编排无关的纯计算。
+## 事实与验收
 
-## Blueprint 协同（可选）
+facts同时用于org-chart的tasks[].facts与dispatch的input.facts。它包含精确路径、原负责人、规模、并行安全以及delegation业务依据；具体合同见references/task-lifecycle.md。
 
-intake 时可选择 `blueprintEnabled`：任务先交给 Blueprint 技能规划为可追溯的工程蓝图
-（结构/引用/验收全部闭合），再回到蜂群派单执行。开启后 org-chart 的下一步是 `blueprint-bridge`，
-由它生成 blueprint 请求负载（`https://cli.tax/wvz6zmRWmX`，operation `compile-inline`），
-`blueprint-bridge` 生成合法的 `blueprint.ir/1.0` 与 Blueprint 请求信封；只有 `compile-inline` 成功后才继续
-`dispatch → claim → report → accept`。桥接本身不发起网络请求。
+reported始终为黄色。accept只允许board，必须有任务绑定且经Validator公钥验签、有效期、产物校验的TestEvidence；本地自报不能成为绿色。
 
-## Official catalog hops
+Blueprint仅在需要蓝图时使用；blueprint-bridge生成请求，不代替实际编译或派单依据。有ArchGuard合同时报告绑定合同与代码块证据，红灯禁止验收。
 
-After `capabilities`, read `officialCatalog`. Default allowlist is official skills. Call another skill only when its capability matches this demand. User-named extras enter only when the user names them; then confirm that skill's capabilities before invoke. Do not call chain-unrelated or self-extended skills.
+## 连续性与协调
 
-## 核心原则
+远端纯运行时由调用方传递完整tasks，本地AutoCoord以.coord台账为准。使用任务卡、冲突扫描、签名锁、基线握手与声明的依赖等待；挂起与重启后恢复原检查点。安全检查、心跳与运维由主代理或确定性服务承担，不另建监控智能体。
 
-1. **组织即规则**：协作结构 = 企业级组织架构（决策/管理/执行三层），派单、审批、汇报都遵循层级规则。
-2. **事实分层**：远端纯运行时仍由调用方回传 `tasks`；本地 AutoCoord 的锁、等待、事件和任务卡只认 `.coord/` 台账，禁止依赖对话上下文。
-3. **红绿灯透明**：每个任务/智能体实时红/黄/绿状态，进度与错误持续上报，不隐藏阻塞。
-4. **运维自治**：心跳停止/卡死 = 自动收回 + 派新智能体 + 继承任务续跑，不中断整体。
-5. **安全守卫**：恶意注入、危险指令、越权请求在进入执行前被拦截并触发警报。
-6. **ArchGuard 块级证据**：仅当任务启用了架构合同，worker 每完成一个真实代码块就先执行 checkpoint；report 必须携带 contract digest、ledger entry digest、漂移灯和回滚结果，红灯任务禁止 accept。无合同的存量项目不伪造 checkpoint。
-7. **等待必须声明**：跨任务等待先登记 `dependency-wait`；挂起期间禁止读取，事件到达/任务死亡/超时/依赖成环都必须有明确出口。
-
-## 五步实施流程
-
-### 1. 组织架构（org-chart）
-生成三层规则：
-- 决策层：老板 / 主智能体（定目标、拆任务、验收）
-- 管理层：调度智能体（派单）+ 运维智能体（心跳/回收/接替）+ 安全守卫（检测/警报）+ 协调器（冲突/锁/等待/唤醒）
-- 执行层：N 个按需创建的子智能体（各自认领任务、执行、回传）
-
-### 2. 任务编排（dispatch / claim / report / accept）
-读取项目 JSON：
-- `dispatch`：只派发依赖全部存在且已经 `accepted` 的 backlog 任务
-- `claim`：子智能体认领任务（同一任务不可被重复认领）
-- `report`：执行完成回传结果和 `cli.tax.test-evidence/1.0` 证据
-- `accept`：只允许 `board` 调用；缺少合法且 `exitCode: 0` 的 TestEvidence 时阻断
-
-`org-chart` 可接收 `tasks`，用无环依赖图的最大层宽给出 `recommendedWorkerCount`（上限 50）。缺失依赖或依赖环会阻断组织架构，不会静默采用用户输入的 worker 数。
-
-### 3. 红绿灯（traffic-light）
-- 🟢 green：任务已回传或验收，且全部 TestEvidence 结构合法、`exitCode` 为 0
-- 🟡 yellow：未完成，或已回传但缺少通过证据
-- 🔴 red：阻塞 / 失败 / 智能体心跳停止
-- 调用方传入最新完整状态后可查询；运行时不保存事件流、不主动推送
-
-### 4. 运维接管（ops）
-- 固定运维智能体监控所有子智能体心跳
-- 心跳超时/卡死 → 标记死亡 → 自主收回任务
-- 派遣新智能体接替 → **继承原任务列表**（含已回传部分）继续执行
-- 全程不中断其他智能体
-
-### 5. 安全守卫（security-guard）
-- 固定安全智能体扫描：
-  - 提示词注入（prompt injection）检测
-  - 危险指令（删除/越权/提权/外泄）检测
-  - 异常行为（高频重试/异常输入）触发警报
-- 拦截结果进入审计日志，老板可查看
-
-## 状态持久化边界
-
-远端运行时是纯函数；本地 `cli-swarm local` 使用仓库 `.coord/` 作为唯一协调事实源。任务卡、锁、队列、事件、等待、裁决与审计由协调器原子写入，聊天只能引用这些记录。调用方自己的任务视图可保存为：
-
-```
-swarm-run/
-├── org-chart.json        # 组织架构规则（三层）
-├── project.json          # 项目需求（唯一事实源）
-├── tasks.json            # 任务包（派单/认领/回传状态）
-├── traffic-light.json    # 红绿灯状态快照
-├── ops-audit.json        # 运维接管记录（回收/接替/继承）
-├── security-audit.json   # 安全守卫记录（拦截/警报）
-└── reports/              # 各智能体回传结果
-```
+心跳停止仅回收未开工assigned任务；claimed/running等待核对原执行结果，禁止盲目重放。替换只复用健康执行者，没有合适执行者时主代理接手或明确记录阻碍，不能自动扩编。
 
 ## 实现状态
 
 | ID | 能力 | 状态 | 边界 |
 |---|---|---|---|
-| S1 | 回传证据与红绿灯 | 已实现 | 使用统一 TestEvidence；无证据回传保持黄色，只有通过证据可变绿。 |
-| S2 | 依赖闭包 | 已实现 | 缺失依赖、未验收依赖、重复 ID 与依赖环均阻断派单。 |
-| S3 | 智能 worker 建议 | 已实现 | 按无环依赖图最大层宽计算，最多 50；不负责创建实际子智能体。 |
-| S4 | 完整状态传递 | 已实现（调用方持有） | 所有变更操作返回完整 `tasks`；运行时不持久化、不可只合并单个 task。 |
-| S5 | AutoCoord 台账与三锁协议 | 已实现（本地协调器） | `.coord/` 原子台账、签名 TTL 文件锁、构建/部署排队和基线握手；Aimlock 写入钩子重验活动租约。 |
-| S6 | 依赖等待与死锁防护 | 已实现（本地协调器） | 结构化等待、事件唤醒、任务死亡即告、超时升级、依赖环主动打断和未声明等待检测。 |
-
-Blueprint 桥接已生成远端可验证的完整 IR；`planningStatus` 是业务字段，不覆盖响应信封的 `status: succeeded`。
+| S1 | 证据验收 | 已实现 | reported待验收；只有任务绑定可信签名通过才可接受。 |
+| S2 | 依赖闭包 | 已实现 | 缺失依赖、重复ID和环阻断。 |
+| S3 | 按需worker | 已实现 | 默认0；业务必要性、收益、独立范围和数量上限共同约束；实际创建由宿主执行。 |
+| S4 | 完整状态 | 已实现 | 返回完整tasks；远端不持久化，调用方保存。 |
+| S5 | AutoCoord | 已实现 | 本地台账、签名锁与基线握手，不额外创建管理智能体。 |
+| S6 | 依赖等待 | 已实现 | 显式等待、超时与死锁处理。 |
 
 ## 参考文档
 
-- `references/org-chart.md` —— 三层组织、角色权限、worker 数量与并行宽度建议
-- `references/task-lifecycle.md` —— 项目 JSON、依赖图、任务状态迁移与 Blueprint 桥接
-- `references/traffic-light.md` —— TestEvidence 合同、通过条件与红黄绿判定
-- `references/ops-heartbeat.md` —— 心跳、回收、接替、继承与调用方调度边界
-- `references/security-guard.md` —— 显式安全检查、拦截结果与当前检测边界
-- `references/autocoord.md` —— 任务卡、冲突规则、锁、基线、依赖等待、超时与死锁协议
+- references/org-chart.md：业务门槛、最少worker数量与逻辑角色。
+- references/task-lifecycle.md：派单事实、状态迁移和Blueprint桥接。
+- references/traffic-light.md：证据与红黄绿判定。
+- references/ops-heartbeat.md：心跳与安全回收。
+- references/security-guard.md：注入检测与明确边界。
+- references/autocoord.md：持久台账、锁与依赖等待。
 
-## 安全规则
-
-- 所有子智能体输入先过安全守卫（防注入/危险指令）
-- 心跳/状态数据只由运维智能体修改，防伪造
-- 任务回传结果进草稿/审计，不覆盖未验收数据
-- 项目 JSON 中的敏感信息（密钥/凭据）不进入子智能体上下文
+组织图只返回数据，不创建真实子代理或唤醒IDE；宿主必须执行上述门禁。敏感凭据不得进入子代理上下文。
 
 ## 受限调用与自动评价闭环
 
 - IDE / 智能体必须通过本包 `invoke` 或 JSON-stdin `broker` 调用，不得直接拼装技能 HTTP 请求，也不得读取 BrainClient token。
-- broker 从 `CLITAX_BRAIN_CLIENT_TOKEN_FILE` 读取身份；macOS/Linux 文件必须为当前 broker 账户所有且权限 `0600`，Windows 文件必须位于受限 `%LOCALAPPDATA%\CLI.Tax\broker` 目录。
+- broker 默认读取账号共享凭据文件；显式 `CLITAX_BRAIN_CLIENT_TOKEN_FILE` 使用绝对路径覆盖；macOS/Linux 文件必须为当前 broker 账户所有且权限 `0600`，Windows 文件必须位于受限 `%LOCALAPPDATA%\CLI.Tax\broker` 目录。
 - broker 只需要 Brain Client HTTPS、受限身份文件和调用方显式传入的路径，本身不需要完整磁盘访问。若要保证 IDE 无法读取身份文件，必须把 broker 放进独立低权限系统账户或沙箱服务，并只暴露受限 IPC；broker 与 IDE 同账户运行时，`0600` 不能隔离二者，禁止声称令牌已隔离。
 - broker 只用 `Authorization: BrainClient …` 发起一次 runtime 请求。HTTP 成功后必须保留响应顶层原始 `feedbackReceiptId`、`feedbackInvocationId` 和 `feedbackEvaluation.digest`，不得生成、猜测、复用或跨调用转移。
 - Brain Client 服务端必须严格绑定请求/响应的 `requestId` 和 `schemaVersion`，再根据真实状态、验证结果、服务端耗时与 findings 生成并持久化权威评分、评语和摘要。broker 不得生成分数或评语。
@@ -182,3 +91,32 @@ Blueprint 桥接已生成远端可验证的完整 IR；`planningStatus` 是业�
 用户明确要求在当前任务处理时，保留原目标；已由其他任务负责的范围需 `handoff-release` 完成安全交接，再重新验证 Aimlock 范围、快照与写入权限。禁止把别人的签名租约、预算或通过证据当作当前任务的新授权。归属不明只暂存新需求，不暂停原任务。
 
 这些操作使用同一协调根目录的持久台账。宿主必须在新消息入口调用并消费结果；技能不能拦截未接入的 IDE，也不会自动创建会话、Git 分支、常驻服务或跨机器复制私密消息。
+
+## 执行完整性共同规则
+
+1. 工程目标、已接受范围和验收项必须持久化；新增需求先路由与合并，不能覆盖原目标。子任务有明确服务目标的理由，执行仅用本链已匹配技能。每次恢复读取 task-resume，核对剩余项、pending请求和continuationNotifications。
+2. 默认由主代理完成工作，禁止为了省事创建子代理、把简单查找/改名/少量修改/单条命令/例行检查/汇总交接给多智能体，禁止为达到门槛拆分或夸大任务。启用Aimlock或Swarm模式不是创建授权，管理/运维/安全/协调是主代理职责，不额外创建常驻智能体。只有业务确需独立且实质性的交付、主代理同时有可推进的独立工作、预期收益严格高于上下文传递/协调/验收成本时才派单；复用已有合适负责人，用户禁止委派时不得创建。每次创建前记录业务理由、交付物、验收项、主代理工作、成本收益、精确路径和原负责人；只创建当前需要的最少数量，不预建空闲角色，不递归扩编或重复扫描。规模门槛200行/3文件/跨模块仅为必要条件，不能单独证明值得委派。主代理负责整合和完整验收，不把半成品当完成；预算抱怨不是停止指令。
+3. 自报、回复送达和动作完成不等于工程交付验证。reported始终待验收；Swarm接受工程任务时复用Validator校验签名、有效期、计划/产物/任务绑定。无证据、伪造runner或失败检查不得成为绿色完成。
+4. 原任务交接前保存检查点并释放旧锁；回程只发持久通知，宿主消费后重新核验基线、快照与写入权限。历史恢复结果不是新授权。技能不能自行唤醒未接入的IDE。
+5. 心跳停止仅允许自动回收尚未开工的assigned任务；claimed/running进入执行结果待核对状态，禁止盲目重复执行。已回传、已验收、失败和取消任务不会被自动重派。服务器停滞回收同时保存会员通知，对话界面定期读取展示。
+6. 预计长任务在预算初始化后、深读前提出一次精确自动续时策略；只有真实授权才自动续时。时间、文件数、token和写入权限分别计量；额度/次数耗尽、撤销和完成必须明确停止并说明下一步。读取预算不是付费充值，计时器由宿主运行。
+7. 云端沙箱开关按调用会员读取；关闭时仅允许当前受审官方源码摘要在受控worker中直接执行，并记录executionIsolation。未知或修改过的源码明确要求sandbox，不伪造隔离结果；worker直接执行不是OS沙箱。
+8. 使用技能前检查官方发布版本并自动升级可管理的安装副本与客户端；配置失败或升级失败停止并报告。通过configure的JSON标准输入导入一次账号凭据，后续项目/分支/任务共享；密钥不进入源码、URL或命令参数。显式环境覆盖必须是绝对路径。网页复制在点击时获取当前凭据，页面仅展示无密钥地址；已撤销密钥没有权限自动获取新密钥，需已认证网页重新同步一次。
+
+English: keep simple work with the main agent. Delegate only substantial independent business deliverables when benefits exceed coordination costs; use the fewest needed agents, never create idle management agents. Enabling Aimlock does not authorize delegation. Finish all authorized work; a cost complaint is not a stop request. Preserve the original goal; verify execution evidence; resume from durable checkpoints; never replay uncertain side effects. Read-time renewal requires bounded approval. Reuse account credentials and check managed skill updates before use; revoked credentials require an authenticated refresh.
+
+Русский: сохраняйте исходную цель, проверяйте доказательства выполнения и возобновляйте работу из сохранённой точки. Не повторяйте операции с неизвестным результатом. Продление чтения требует ограниченного разрешения; ключи учётной записи используются повторно, обновления навыков проверяются перед вызовом.
+
+## 账号共享凭据与自动更新
+
+在已登录的能力市场复制安装入口，将内容粘贴给 IDE。页面只展示原地址，剪贴板会携带当前账号凭据。IDE 将四字段凭据 JSON 经标准输入交给 `npx cli-aimlock@latest configure`；不要放到命令参数、项目文件或日志中。一次配置供同一操作系统账号的所有项目、分支和任务使用，八个技能共享同一文件。
+
+默认位置：macOS 为 `~/Library/Application Support/CLI.Tax/broker/credential.json`，Linux 为 `~/.local/share/CLI.Tax/broker/credential.json`，Windows 为 `%LOCALAPPDATA%\CLI.Tax\broker\credential.json`。显式 `CLITAX_BRAIN_CLIENT_TOKEN_FILE` 仍按绝对路径覆盖默认位置；迁移旧 IDE 配置时移除其过时覆盖，再使用账号共享文件。macOS/Linux 校验当前账号所有权和0600权限；Windows校验仅当前账号与SYSTEM可访问的ACL。
+
+每次新技能调用先查询官方发布版本，精确版本下载并校验身份后自动使用；更新已托管的当前项目与账号技能目录，失败恢复旧目录，禁止覆盖 Git 跟踪源码或未托管内容。升级返回 `upgrade.reloadRequired` 和说明路径时，IDE 应读取更新后的 SKILL.md、核对本任务合同再继续。install/check同样自动更新，不需要每次人工发升级指令。查询不确定调用的原回执不升级、不重发操作。
+
+升级不会清除账号凭据；各调用重新读取共享文件，因此重新同步一次密钥后所有任务使用新值。已撤销或失效的密钥不能为自己取得新权限，必须从已认证网页重新同步一次。两个不同操作系统账号不共享私密文件。
+
+English: configure once using JSON stdin; all tasks under the same OS account reuse the credential. Each new invocation checks and updates the official package and managed documentation. Reload updated instructions when indicated. Revoked keys require a fresh authenticated copy.
+
+Русский: настройте ключ один раз через JSON stdin для всех задач пользователя ОС. Перед новым вызовом пакет и управляемые инструкции обновляются автоматически. Отозванный ключ требует повторной синхронизации с авторизованной страницы.

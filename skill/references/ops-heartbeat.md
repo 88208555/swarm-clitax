@@ -7,16 +7,16 @@
 
 ## 公开 `reclaim` 操作
 
-输入为 `tasks`、`taskId` 和可选 `reason`。任务不存在时返回 `RECLAIM_FAILED`；已是 `backlog` 时返回 `RECLAIM_NOOP`。其他已找到状态当前都会被设为 `backlog`、清空 owner，并返回完整 tasks。
+输入为 `tasks`、`taskId` 和可选 `reason`。任务不存在时返回 `RECLAIM_FAILED`；已是 `backlog` 时返回 `RECLAIM_NOOP`。仅assigned可恢复backlog；claimed/running被标记blocked并返回完整状态与RECLAIM_REQUIRES_RECONCILIATION，终态保持不变。
 
-公开 `reclaim` 不校验调用角色，也不限于 assigned/claimed/running。调用方必须在权威层控制调用者和可回收状态，不得将当前路由写成已完成权限强制。
+公开 `reclaim` 不校验调用角色，但已限制为尚未开工的assigned。调用方必须在权威层控制调用者和可回收状态，不得将当前路由写成已完成权限强制。
 
 ## 内部运维函数
 
 - `buildAgents`：从 org JSON 生成带状态、最后心跳、miss 次数和进度字段的 agent 数组。
 - `recordHeartbeat`：更新已存在 agent 的时间、清零 miss，并可把 dead/red 恢复为 green。
 - `scanHeartbeats`：按 30 秒计一次 miss；1–2 次为 yellow，3 次及以上标记 worker dead。
-- `reclaimTasks`：只回收指定 worker 名下 `assigned|claimed|running` 任务，设为 backlog 并记录 `inheritedFrom`。
+- `reclaimTasks`：只回收指定 worker 名下 `assigned` 任务，设为backlog并记录inheritedFrom；已开始任务阻断等待核对。
 - `replaceWorker`：从已有 agent 数组选择另一个 green worker，将回收任务重新设为 assigned，写入 `assignedBy: ops` 与继承信息。
 
 ## 调度边界

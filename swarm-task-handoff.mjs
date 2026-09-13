@@ -3,7 +3,7 @@ import { resolve, relative } from 'node:path'
 import { createHash } from 'node:crypto'
 import { withCoordinationState } from './swarm-coordinator-fs.mjs'
 import { requireString } from './swarm-coordinator-model.mjs'
-import { hasActiveWait, pendingDecision, eventRecord, routeEvent } from './swarm-coordinator-waits.mjs'
+import { hasActiveWait, pendingDecision, eventRecord, routeEvent, addMessage } from './swarm-coordinator-waits.mjs'
 import { TASKS_SCHEMA, describedTask, accessRequest, requestedTask, targetRequest, routingError,
   event, requestView, receipt, requests, digest } from './swarm-task-routing-model.mjs'
 
@@ -20,6 +20,20 @@ function revokeTaskLocks(state, taskId, now) {
     queued.reason = 'explicit-task-handoff'
     queued.resolvedAt = now
   }
+}
+function continuationNotice(state, original, request, phase, now) {
+  const payload = { schemaVersion: 'swarm.task-continuation/1.0', requestId: request.requestId,
+    taskId: original.taskId, chainId: original.chainId, hostId: original.routing.hostId,
+    threadId: original.routing.threadId, goal: original.routing.goal, phase,
+    remainingRequirements: original.routing.requirements.filter(item => !original.routing.completedRequirementIds.includes(item.id)),
+    nextAction: original.routing.nextAction, refetchPaths: request.handoffPaths,
+    requiredAction: phase === 'returned' ? 'handoff-resume' : 'await-handoff-result',
+    freshAimlockSnapshotRequired: true, executionAuthorized: false }
+  const signal = eventRecord(original.agentId, 'handoff-' + phase, payload, now)
+  state.events.push(signal)
+  routeEvent(state, signal)
+  addMessage(state, 'task-continuation', 'coordinator', original.agentId, payload, now)
+  addMessage(state, 'task-continuation', 'coordinator', 'human', payload, now)
 }
 function handoffScope(task, request) {
   const paths = request.targetPaths.length ? request.targetPaths : task.taskScope
@@ -55,6 +69,7 @@ async function releaseHandoff(root, input) {
     original.status = 'waiting'
     revokeTaskLocks(state, original.taskId, now)
     request.handoffPaths = paths
+    continuationNotice(state, original, request, 'paused', now)
     request.previousTargetScope = [...target.taskScope]
     target.taskScope = [...new Set([...target.taskScope, ...paths])]
     target.baselineHandshake = null
@@ -94,8 +109,9 @@ async function completeMessage(root, input) {
       revokeTaskLocks(state, task.taskId, now)
       task.taskScope = request.previousTargetScope
       task.baselineHandshake = null
-      event(request, 'handoff-returned', { originalTaskId: original.taskId, refetchPaths: request.targetPaths,
+      event(request, 'handoff-returned', { originalTaskId: original.taskId, refetchPaths: request.handoffPaths,
         requiredAction: 'refetch-and-verify-baseline-before-resume' })
+      continuationNotice(state, original, request, 'returned', now)
     }
     event(request, 'message-completed', { resultSummary })
     return { state, output: { schemaVersion: TASKS_SCHEMA, request: requestView(request), receipt: receipt(request) },
@@ -145,7 +161,7 @@ async function resumeHandoff(root, input) {
     const task = describedTask(state, input), request = accessRequest(state, task, input.requestId)
     if (request.handoffTaskId !== task.taskId || request.status !== 'completed') routingError('HANDOFF_NOT_COMPLETE', 'only the original task can resume a completed handoff')
     const resumed = request.history.find(item => item.type === 'handoff-resumed')
-    if (resumed) return { state, output: { schemaVersion: TASKS_SCHEMA, ...resumed.details, replayed: true }, audit: [] }
+    if (resumed) return { state, output: { schemaVersion: TASKS_SCHEMA, ...resumed.details, replayed: true, currentStatus: task.status, historicalBaseline: true }, audit: [] }
     if (task.status !== 'blocked' || task.blockedReason !== 'baseline-mismatch' || task.routing.handoff !== null
       || hasActiveWait(state, task) || pendingDecision(state, task)) routingError('TASK_SUSPENDED', 'other task dependencies still prevent resumption')
     const baseline = await baselineFingerprint(root, request.handoffPaths)

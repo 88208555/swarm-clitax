@@ -1,32 +1,11 @@
 # Swarm 组织架构
-## 协议与层级
 
-`org-chart` 返回 `swarm.org-chart/1.0` JSON，包含三层：
+默认主代理执行。org-chart没有任务事实时返回0个worker，nextStep.operation为null，由主代理继续工作。
 
-- `board`：决策层，负责派单、验收、停止和回收等决策。
-- `management`：固定的 `dispatcher`、`ops`、`security-guard`。
-- `execution`：按 `workerCount` 生成的 `worker-NNN` 描述项。
+input可包含workerCount（0–50的整数上限）、projectName、tasks、blueprintEnabled。每个tasks[].facts采用[task-lifecycle.md](task-lifecycle.md)的业务必要性合同。简单、缺失理由、收益不高于协调成本和路径冲突的任务不计入可委派任务。实际数量不超过有依据的独立范围数、依赖图层宽和用户上限，禁止人为夸大估算以增加数量。
 
-返回的 `permissions` 是角色动作表。实际运行时会在 `dispatch`、`accept` 等关键状态迁移中再检查角色，不应只依赖展示用的权限表。
+org.delegationDecisions逐任务记录delegate及拒绝理由；org.executionMode为single-agent或delegated。recommendedWorkerCount为本次规划的数量上限，宿主应只创建当前就绪任务需要的最少执行者，先复用已有负责人。
 
-## 输入与输出
+board是主代理；management包含dispatcher、ops、security-guard、coordinator逻辑职责，hostAgentId均为board。fixedAgents只含board，buildAgents不为这些管理职责添加独立智能体。
 
-`input` 可包含 `workerCount`、`projectName`、`tasks` 和 `blueprintEnabled`。当前 `workerCount` 默认为 4，并限制在 1–50。成功输出包含 `org`、`fixedAgents`、`workerCount`、`blueprintEnabled` 和 `nextStep`。
-
-如果输入中提供非空 `tasks`，运行时会分析依赖图，把每个无环层的最大宽度（上限 50）返回为 `recommendedWorkerCount`。建议值不会覆盖已生成的 execution worker 数量。
-
-## 依赖图错误
-
-以下情况会产生结构化 findings 并阻断 `org-chart`：
-
-- `taskId` 不合法或重复；
-- `dependsOn` 引用不存在的任务；
-- 依赖图存在环。
-
-## 当前边界
-
-`org-chart` 只生成组织 JSON，不创建真实子智能体、不建立心跳连接、不存储状态。调用方负责根据组织描述建立实际执行者，并保存每次返回的完整状态。
-
-## 实现依据
-
-`swarm-runtime.mjs` 的 `ORG_LAYERS`、`ORG_PERMISSIONS`、`analyzeTaskGraph`、`buildOrgChart` 和 `validateOrgChart` 是本文的权威来源。
+重复或非法taskId、缺失依赖和依赖环仍阻断。运行时只生成组织数据，不创建实际智能体，不提供对未接入IDE的物理拦截；宿主必须执行相同门禁。启用Aimlock或Swarm并不代表需要多智能体。

@@ -5,6 +5,7 @@ const ACTIONS = new Set(['inspect', 'modify', 'build', 'deploy', 'publish', 'wai
 const LOCK_TYPES = new Set(['file', 'build', 'deploy'])
 const MESSAGE_TYPES = new Set([
   'range-declare',
+  'task-continuation',
   'conflict-alert',
   'lock-granted',
   'lock-denied',

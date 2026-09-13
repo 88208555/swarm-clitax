@@ -1,29 +1,24 @@
-// swarm v7.0.10：自包含、无外部依赖的确定性蜂群编排运行时。
+import { text, isObject, validId, finding, ORG_PERMISSIONS, TEST_EVIDENCE_SCHEMA, SHA256_PATTERN } from "./swarm-task-contract.mjs";
+import { dispatchEligibility, buildTasks, dispatchTask, claimTask, reportTask, acceptTask, taskTrafficLight, validateTestEvidence, normalizeTestEvidence, hasPassingTestEvidence, hasTrustedTestEvidence, reclaimTask } from "./swarm-task-policy.mjs";
+// Reviewed modules are compiled into one deployment artifact by build-swarm-runtime.mjs.
 const REQUEST_SCHEMA = "swarm.skill.request/1.0";
 const ALLOWED_EXTERNAL_ENDPOINTS = { blueprint: "https://cli.tax/wvz6zmRWmX" };
 const RESPONSE_SCHEMA = "swarm.skill.response/1.0"; const ERROR_SCHEMA = "swarm.skill.error/1.0";
-const ORG_SCHEMA = "swarm.org-chart/1.0"; const TASK_SCHEMA = "swarm.tasks/1.0"; const TEST_EVIDENCE_SCHEMA = "cli.tax.test-evidence/1.0";
-const COMPILER_NAME = "swarm"; const COMPILER_VERSION = "v7.0.38";
-const SHA256_PATTERN = /^[0-9a-f]{64}$/;
+const ORG_SCHEMA = "swarm.org-chart/1.0"; const TASK_SCHEMA = "swarm.tasks/1.0";
+const COMPILER_NAME = "swarm"; const COMPILER_VERSION = "v7.0.39";
 const PURE_OPERATIONS = new Set([
   "capabilities", "help", "intake", "org-chart", "blueprint-bridge", "dispatch", "claim",
   "report", "accept", "swarm-status", "traffic-light", "security-check", "validate-json", "heartbeat", "reclaim",
 ]);
-function text(value) { return String(value ?? ""); }
 function okResponse(requestId, payload) { return { schemaVersion: RESPONSE_SCHEMA, requestId, status: "succeeded", ...payload }; }
 function blockedResponse(requestId, request, findings) {
   return { schemaVersion: RESPONSE_SCHEMA, requestId, status: "blocked", brainMode: null,
     requestedBrainMode: request?.requestedBrainMode ?? "ide", brainUsed: false, revision: null,
     validation: { valid: false, guarantee: "blocked", findings } };
 }
-function finding(severity, ruleId, entityRef, message, evidence = {}) { return { severity, ruleId, entityRef, message, evidence }; }
-function isObject(value) { return value !== null && typeof value === "object" && !Array.isArray(value); }
-function validId(value) { return typeof value === "string" && /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/.test(value); }
 const ORG_LAYERS = ["board", "management", "execution"];
 const ORG_ROLES = ["board", "dispatcher", "ops", "security-guard", "coordinator", "worker"];
 const ORG_FIXED_ROLES = new Set(["board", "dispatcher", "ops", "security-guard", "coordinator"]);
-const ORG_PERMISSIONS = { board: ["dispatch", "accept", "reject", "stop", "reclaim", "replace"], dispatcher: ["dispatch", "reassign", "prioritize"], ops: ["heartbeat", "reclaim", "replace"],
-  "security-guard": ["block", "alert", "quarantine"], coordinator: ["conflict-scan", "lock", "queue", "baseline-handshake", "dependency-wait", "wake", "need-human"], worker: ["claim", "report", "request-help"], };
 function analyzeTaskGraph(tasks) {
   const findings = [];
   const ids = new Set();
@@ -53,14 +48,27 @@ function analyzeTaskGraph(tasks) {
   return { findings: [], recommendedWorkerCount: Math.min(50, Math.max(...levels)) };
 }
 function buildOrgChart(input = {}) {
-  const workerCount = Math.min(50, Math.max(1, Math.floor(Number(input.workerCount) || 4)));
   const projectName = text(input.projectName || "swarm-run");
-  let recommendedWorkerCount, recommendationFindings = [];
+  let recommendedWorkerCount = 0, recommendationFindings = [];
+  const delegationDecisions = [];
   if (Array.isArray(input.tasks) && input.tasks.length > 0) {
     const analysis = analyzeTaskGraph(input.tasks);
-    recommendedWorkerCount = analysis.recommendedWorkerCount ?? undefined;
     recommendationFindings = analysis.findings;
+    if (!recommendationFindings.length) {
+      const eligible = [];
+      for (const task of input.tasks) {
+        const reason = dispatchEligibility(eligible, task, task.facts);
+        delegationDecisions.push({ taskId: task.taskId, delegate: reason === null, reason });
+        if (reason === null) eligible.push({ ...task, status: "assigned", dispatch: task.facts });
+      }
+      recommendedWorkerCount = Math.min(analysis.recommendedWorkerCount, eligible.length);
+    }
   }
+  if (input.workerCount !== undefined && (!Number.isSafeInteger(input.workerCount) || input.workerCount < 0 || input.workerCount > 50)) {
+    recommendationFindings.push(finding("P0", "WORKER_COUNT_INVALID", "input.workerCount", "workerCount must be an integer from 0 to 50"));
+  }
+  const workerCount = recommendationFindings.length ? 0
+    : input.workerCount === undefined ? recommendedWorkerCount : Math.min(input.workerCount, recommendedWorkerCount);
   const org = { schemaVersion: ORG_SCHEMA, projectName, layers: { board: [{ agentId: "board", role: "board", title: "决策层·老板/主智能体" }],
       management: [
         { agentId: "dispatcher", role: "dispatcher", title: "管理层·调度智能体", fixed: true },
@@ -68,7 +76,8 @@ function buildOrgChart(input = {}) {
         { agentId: "coordinator", role: "coordinator", title: "管理层·自动协调智能体", fixed: true }, ],
       execution: Array.from({ length: workerCount }, (_, i) => ({ agentId: `worker-${String(i + 1).padStart(3, "0")}`,
         role: "worker", title: `执行层·子智能体 ${i + 1}`, fixed: false })),
-    }, permissions: ORG_PERMISSIONS };
+    }, permissions: ORG_PERMISSIONS, delegationDecisions, executionMode: workerCount === 0 ? "single-agent" : "delegated" };
+  for (const role of org.layers.management) role.hostAgentId = "board";
   if (recommendedWorkerCount !== undefined) org.recommendedWorkerCount = recommendedWorkerCount;
   if (recommendationFindings.length) org.recommendationFindings = recommendationFindings;
   return org;
@@ -113,92 +122,11 @@ function validateProjectJson(project) {
   else findings.push(...analyzeTaskGraph(project.tasks).findings);
   return findings;
 }
-function buildTasks(project, org) {
-  return (project.tasks ?? []).map((task, index) => ({
-    taskId: validId(task.taskId) ? task.taskId : `task-${String(index + 1).padStart(4, "0")}`, title: text(task.title || task.name || `任务 ${index + 1}`), owner: null, status: "backlog",
-    priority: text(task.priority || "normal"), dependsOn: Array.isArray(task.dependsOn) ? task.dependsOn : [], assignedBy: null, claimedAt: null, reportedAt: null, report: null, progressPercent: 0,
-    progressNote: "", inheritedFrom: null }));
-}
-function dispatchTask(tasks, taskId, workerId, actorRole) {
-  if (!ORG_PERMISSIONS[actorRole]?.includes("dispatch")) return { ok: false, error: `role ${actorRole} cannot dispatch` };
-  const task = tasks.find((t) => t.taskId === taskId);
-  if (!task) return { ok: false, error: `task ${taskId} not found` };
-  if (task.status !== "backlog") return { ok: false, error: `task ${taskId} is ${task.status}, not backlog` };
-  for (const dependencyId of Array.isArray(task.dependsOn) ? task.dependsOn : []) {
-    const dependency = tasks.find((candidate) => candidate.taskId === dependencyId);
-    if (!dependency) return { ok: false, error: `dependency ${dependencyId} not found` };
-    if (dependency.status !== "accepted") return { ok: false, error: `dependency ${dependencyId} is ${dependency.status}, not accepted` };
-  }
-  task.status = "assigned"; task.owner = workerId; task.assignedBy = actorRole;
-  return { ok: true, task };
-}
-function claimTask(tasks, taskId, workerId) {
-  const task = tasks.find((t) => t.taskId === taskId);
-  if (!task) return { ok: false, error: `task ${taskId} not found` };
-  if (task.status !== "assigned") return { ok: false, error: `task ${taskId} is ${task.status}, not assigned` };
-  if (task.owner && task.owner !== workerId) return { ok: false, error: `task ${taskId} claimed by another worker` };
-  task.status = "claimed"; task.owner = workerId; task.claimedAt = new Date().toISOString();
-  return { ok: true, task };
-}
-function validateTestEvidence(value, entityRef) {
-  const findings = [];
-  if (!isObject(value)) return [finding("P0", "TEST_EVIDENCE_OBJECT", entityRef, "TestEvidence must be an object")];
-  if (value.schemaVersion !== TEST_EVIDENCE_SCHEMA) findings.push(finding("P0", "TEST_EVIDENCE_SCHEMA", `${entityRef}.schemaVersion`, `Expected ${TEST_EVIDENCE_SCHEMA}`));
-  if (!text(value.evidenceId).trim()) findings.push(finding("P0", "TEST_EVIDENCE_ID", `${entityRef}.evidenceId`, "evidenceId is required"));
-  if (!["test", "build", "lint", "security", "benchmark"].includes(value.kind)) findings.push(finding("P0", "TEST_EVIDENCE_KIND", `${entityRef}.kind`, "kind is unsupported"));
-  if (!["local", "trusted-runner"].includes(value.runner)) findings.push(finding("P0", "TEST_EVIDENCE_RUNNER", `${entityRef}.runner`, "runner must be local or trusted-runner"));
-  if (!text(value.command).trim()) findings.push(finding("P0", "TEST_EVIDENCE_COMMAND", `${entityRef}.command`, "command is required"));
-  if (!Number.isInteger(value.exitCode)) findings.push(finding("P0", "TEST_EVIDENCE_EXIT", `${entityRef}.exitCode`, "exitCode must be an integer"));
-  if (typeof value.durationMs !== "number" || !Number.isFinite(value.durationMs) || value.durationMs < 0) findings.push(finding("P0", "TEST_EVIDENCE_DURATION", `${entityRef}.durationMs`, "durationMs must be a finite number >= 0"));
-  if (!text(value.summary).trim()) findings.push(finding("P0", "TEST_EVIDENCE_SUMMARY", `${entityRef}.summary`, "summary is required"));
-  if (value.artifactSha256 !== undefined && !SHA256_PATTERN.test(value.artifactSha256)) findings.push(finding("P0", "TEST_EVIDENCE_ARTIFACT", `${entityRef}.artifactSha256`, "artifactSha256 must be a lowercase SHA-256 digest"));
-  return findings;
-}
-function normalizeTestEvidence(values) {
-  if (!Array.isArray(values)) return { evidence: [], findings: [finding("P0", "TEST_EVIDENCE_ARRAY", "report.evidence", "evidence must be an array")] };
-  const findings = values.flatMap((value, index) => validateTestEvidence(value, `report.evidence[${index}]`));
-  return findings.length ? { evidence: [], findings } : { evidence: values.map((value) => ({ ...value })), findings: [] };
-}
-function hasPassingTestEvidence(task) {
-  const evidence = task?.report?.evidence;
-  return Array.isArray(evidence) && evidence.length > 0
-    && evidence.every((value, index) => validateTestEvidence(value, `task.report.evidence[${index}]`).length === 0 && value.exitCode === 0);
-}
-function reportTask(tasks, taskId, workerId, report) {
-  const task = tasks.find((t) => t.taskId === taskId);
-  if (!task) return { ok: false, error: `task ${taskId} not found` };
-  if (task.owner && task.owner !== workerId) return { ok: false, error: `task ${taskId} not owned by ${workerId}` };
-  if (!["claimed", "running"].includes(task.status)) return { ok: false, error: `task ${taskId} is ${task.status}, cannot report` };
-  if (!isObject(report)) return { ok: false, error: "report must be an object" };
-  if (!text(report.output).trim() && report.evidence === undefined) return { ok: false, error: "report must have output or evidence" };
-  const normalizedReport = { output: text(report.output) };
-  if (report.evidence !== undefined) {
-    const normalized = normalizeTestEvidence(report.evidence);
-    if (normalized.findings.length) return { ok: false, error: "report evidence is invalid", findings: normalized.findings };
-    normalizedReport.evidence = normalized.evidence;
-  }
-  task.status = "reported"; task.report = normalizedReport; task.reportedAt = new Date().toISOString();
-  return { ok: true, task, hasEvidence: hasPassingTestEvidence(task) };
-}
-function acceptTask(tasks, taskId, accept, actorRole) {
-  if (actorRole !== "board") return { ok: false, error: `role ${actorRole} cannot accept` };
-  const task = tasks.find((t) => t.taskId === taskId);
-  if (!task) return { ok: false, error: `task ${taskId} not found` };
-  if (task.status !== "reported") return { ok: false, error: `task ${taskId} is ${task.status}, not reported` };
-  if (accept && !hasPassingTestEvidence(task)) return { ok: false, error: `task ${taskId} has no passing TestEvidence` };
-  task.status = accept ? "accepted" : "failed";
-  return { ok: true, task };
-}
-function taskTrafficLight(task) {
-  if (task.status === "accepted") return hasPassingTestEvidence(task) ? "green" : "red";
-  if (task.status === "reported") return hasPassingTestEvidence(task) ? "green" : "yellow";
-  if (task.status === "failed" || task.status === "blocked" || task.status === "cancelled") return "red";
-  return "yellow";
-}
 const HEARTBEAT_MISS_LIMIT = 3;
 function buildAgents(org, nowIso = null) {
   const now = nowIso || new Date().toISOString(), agents = [];
   for (const layer of ORG_LAYERS) for (const member of org.layers?.[layer] ?? []) {
+    if (member.hostAgentId === "board") continue;
     agents.push({ agentId: member.agentId, role: member.role, title: member.title,
         fixed: Boolean(member.fixed), status: "green", lastHeartbeatAt: now,
         heartbeatMisses: 0, currentTaskId: null, progressPercent: 0, progressNote: "" });
@@ -221,6 +149,7 @@ function scanHeartbeats(agents, nowIso = null) {
     const misses = Math.floor((now - new Date(agent.lastHeartbeatAt).getTime()) / 30000);
     agent.heartbeatMisses = Math.max(agent.heartbeatMisses, Math.min(misses, 99));
     if (agent.heartbeatMisses >= HEARTBEAT_MISS_LIMIT && agent.status !== "dead") { agent.status = "dead"; dead.push(agent.agentId); }
+    else if (agent.status === "dead") continue;
     else if (agent.heartbeatMisses >= 1) agent.status = "yellow";
     else agent.status = "green";
   }
@@ -229,16 +158,14 @@ function scanHeartbeats(agents, nowIso = null) {
 function reclaimTasks(tasks, workerId) {
   const reclaimed = [];
   for (const task of tasks) {
-    if (task.owner === workerId && ["assigned", "claimed", "running"].includes(task.status)) {
-      task.status = "backlog"; task.owner = null; task.inheritedFrom = workerId; reclaimed.push(task.taskId);
-    }
+    if (task.owner === workerId && reclaimTask(task, workerId)) reclaimed.push(task.taskId);
   }
   return reclaimed;
 }
 function replaceWorker(org, agents, tasks, deadWorkerId, newWorkerId = null) {
   const dead = agents.find((a) => a.agentId === deadWorkerId);
-  if (!dead) return { ok: false, error: `dead worker ${deadWorkerId} not found` };
-  const replacement = newWorkerId ? agents.find((a) => a.agentId === newWorkerId && a.role === "worker")
+  if (!dead || dead.role !== "worker" || dead.status !== "dead") return { ok: false, error: `dead worker ${deadWorkerId} not found` };
+  const replacement = newWorkerId ? agents.find((a) => a.agentId === newWorkerId && a.role === "worker" && a.status === "green" && a.agentId !== deadWorkerId)
     : agents.find((a) => a.role === "worker" && a.status === "green" && a.agentId !== deadWorkerId);
   if (!replacement) return { ok: false, error: "no healthy replacement worker available" };
   const inheritedTasks = reclaimTasks(tasks, deadWorkerId);
@@ -251,7 +178,7 @@ function replaceWorker(org, agents, tasks, deadWorkerId, newWorkerId = null) {
   return { ok: true, replacement: replacement.agentId, inheritedTasks };
 }
 const INTAKE_QUESTIONS = [ { id: "goal", prompt: "What must the swarm accomplish? List the parallel/ordered work items or point to the project JSON.", required: true, example: "12 个模块迁移：A1..A12，依赖 A1→A2→A3，其余并行" },
-  { id: "workerCount", prompt: "How many worker sub-agents should the brain create?", required: false, example: "6" },
+  { id: "workerCount", prompt: "What is the maximum justified worker count? Omit for task-based sizing; simple work stays with the main agent.", required: false, example: "6" },
   { id: "orgTier", prompt: "Any org-chart constraints? (default: board → dispatcher/ops/security-guard → workers)", required: false, example: "默认三层即可" },
   { id: "securityPolicy", prompt: "Security policy: strict (block injections) or observe (alert only)?", required: false, example: "strict" },
   { id: "blueprintEnabled", prompt: "Use Blueprint to plan tasks before dispatch? (yes: tasks are planned by the Blueprint skill for traceable acceptance; no: direct dispatch)", required: false, example: "no" }, ];
@@ -264,13 +191,18 @@ const nullableStringSchema = { type: ["string", "null"] };
 const evidenceSchema = objectSchema({ schemaVersion: { const: TEST_EVIDENCE_SCHEMA }, evidenceId: stringSchema({ minLength: 1 }),
   kind: { enum: ["test", "build", "lint", "security", "benchmark"] }, runner: { enum: ["local", "trusted-runner"] }, command: stringSchema({ minLength: 1 }), exitCode: { type: "integer" }, durationMs: { type: "number", minimum: 0 },
   summary: stringSchema({ minLength: 1 }), artifactSha256: stringSchema({ pattern: SHA256_PATTERN.source }), }, ["schemaVersion", "evidenceId", "kind", "runner", "command", "exitCode", "durationMs", "summary"], { additionalProperties: true });
+const delegationSchema = objectSchema({ businessNeed: stringSchema({ minLength: 1 }), deliverable: stringSchema({ minLength: 1 }),
+  acceptanceCriteria: stringSchema({ minLength: 1 }), mainAgentWork: stringSchema({ minLength: 1 }), independent: { type: "boolean" },
+  substantial: { type: "boolean" }, estimatedSavedMinutes: { type: "number", minimum: 0 }, coordinationMinutes: { type: "number", minimum: 0 },
+}, ["businessNeed", "deliverable", "acceptanceCriteria", "mainAgentWork", "independent", "substantial", "estimatedSavedMinutes", "coordinationMinutes"]);
+const dispatchSchema = objectSchema({ delegation: delegationSchema, estimatedChangedLines: { type: "integer", minimum: 0 }, fileCount: { type: "integer", minimum: 1 }, crossModule: { type: "boolean" }, parallelSafe: { type: "boolean" }, ownerId: stringSchema({ minLength: 1 }), targetPaths: arraySchema(stringSchema({ minLength: 1 }), { minItems: 1 }) }, ["estimatedChangedLines", "fileCount", "crossModule", "parallelSafe", "ownerId", "targetPaths", "delegation"]);
 const reportSchema = objectSchema({ output: stringSchema(), evidence: arraySchema(evidenceSchema) }, [], {
   anyOf: [{ properties: { output: stringSchema({ minLength: 1 }) }, required: ["output"] }, { required: ["evidence"] }],
 });
 const taskSchema = objectSchema({ taskId: stringSchema({ minLength: 1 }), title: stringSchema(), owner: nullableStringSchema,
   status: { enum: [...TASK_STATUSES] }, priority: stringSchema(), dependsOn: arraySchema(stringSchema()), assignedBy: nullableStringSchema, claimedAt: nullableStringSchema, reportedAt: nullableStringSchema,
   report: { anyOf: [{ type: "null" }, reportSchema] }, progressPercent: { type: "number" }, progressNote: stringSchema(), inheritedFrom: nullableStringSchema, trafficLight: { enum: ["green", "yellow", "red"] }, }, ["taskId", "title", "status", "dependsOn"], { additionalProperties: true });
-const projectTaskSchema = objectSchema({ taskId: stringSchema({ minLength: 1 }), title: stringSchema({ minLength: 1 }),
+const projectTaskSchema = objectSchema({ facts: dispatchSchema, taskId: stringSchema({ minLength: 1 }), title: stringSchema({ minLength: 1 }),
   name: stringSchema(), priority: stringSchema(), dependsOn: arraySchema(stringSchema()) }, ["taskId", "title"], { additionalProperties: true });
 const agentSchema = objectSchema({ agentId: stringSchema({ minLength: 1 }), role: { enum: ORG_ROLES }, title: stringSchema(), fixed: { type: "boolean" }, status: { enum: ["green", "yellow", "red", "dead"] }, lastHeartbeatAt: stringSchema({ format: "date-time" }),
   heartbeatMisses: { type: "integer", minimum: 0 }, currentTaskId: nullableStringSchema, progressPercent: { type: "number" }, progressNote: stringSchema() }, ["agentId", "role", "status"], { additionalProperties: true });
@@ -287,9 +219,9 @@ const OPERATION_SCHEMAS = Object.freeze({
   capabilities: operationSchema({}, [], { capabilities: anyObjectSchema, operationSchemas: anyObjectSchema, skill: anyObjectSchema, nextStep: nextSchema }, ["capabilities", "operationSchemas", "skill", "nextStep"]),
   help: operationSchema({}, [], { help: anyObjectSchema, nextStep: nextSchema }, ["help", "nextStep"]),
   intake: operationSchema({}, [], { questions: arraySchema(anyObjectSchema), nextStep: nextSchema }, ["questions", "nextStep"]),
-  "org-chart": operationSchema({ workerCount: { type: "number", minimum: 1, maximum: 50 }, projectName: stringSchema(), blueprintEnabled: { type: ["boolean", "string"] }, tasks: arraySchema(projectTaskSchema) }, [], { org: anyObjectSchema, blueprintEnabled: { type: "boolean" }, fixedAgents: arraySchema(stringSchema()), workerCount: { type: "integer" }, nextStep: nextSchema }, ["org", "blueprintEnabled", "fixedAgents", "workerCount", "nextStep"]),
+  "org-chart": operationSchema({ workerCount: { type: "integer", minimum: 0, maximum: 50 }, projectName: stringSchema(), blueprintEnabled: { type: ["boolean", "string"] }, tasks: arraySchema(projectTaskSchema) }, [], { org: anyObjectSchema, blueprintEnabled: { type: "boolean" }, fixedAgents: arraySchema(stringSchema()), workerCount: { type: "integer" }, nextStep: nextSchema }, ["org", "blueprintEnabled", "fixedAgents", "workerCount", "nextStep"]),
   "blueprint-bridge": operationSchema({ projectName: stringSchema({ minLength: 1 }), tasks: arraySchema(projectTaskSchema, { minItems: 1 }) }, ["projectName", "tasks"], { planningStatus: { const: "planned" }, blueprintEnabled: { const: true }, blueprintEndpoint: stringSchema({ format: "uri" }), blueprintRequest: anyObjectSchema, projectFormat: { const: "swarm.project/1.0" }, nextStep: nextSchema }, ["planningStatus", "blueprintEnabled", "blueprintEndpoint", "blueprintRequest", "projectFormat", "nextStep"]),
-  dispatch: operationSchema({ ...tasksInput, workerId: stringSchema({ minLength: 1 }), actorRole: { enum: ["dispatcher", "board"] } }, ["tasks", "taskId", "workerId", "actorRole"], { ...taskStateOutput, nextStep: nextSchema }, ["task", "tasks", "stateNote", "nextStep"]),
+  dispatch: operationSchema({ ...tasksInput, workerId: stringSchema({ minLength: 1 }), actorRole: { enum: ["dispatcher", "board"] }, facts: dispatchSchema }, ["tasks", "taskId", "workerId", "actorRole", "facts"], { ...taskStateOutput, nextStep: nextSchema }, ["task", "tasks", "stateNote", "nextStep"]),
   claim: operationSchema({ ...tasksInput, workerId: stringSchema({ minLength: 1 }) }, ["tasks", "taskId", "workerId"], { ...taskStateOutput, trafficLight: { enum: ["green", "yellow", "red"] }, nextStep: nextSchema }, ["task", "tasks", "trafficLight", "stateNote", "nextStep"]),
   report: operationSchema({ ...tasksInput, workerId: stringSchema({ minLength: 1 }), report: reportSchema }, ["tasks", "taskId", "workerId", "report"], { ...taskStateOutput, trafficLight: { enum: ["green", "yellow", "red"] }, evidenceRequired: { type: "boolean" }, nextStep: nextSchema }, ["task", "tasks", "trafficLight", "stateNote", "nextStep"]),
   accept: operationSchema({ ...tasksInput, actorRole: { const: "board" }, accept: { type: "boolean" } }, ["tasks", "taskId", "actorRole", "accept"], { ...taskStateOutput, trafficLight: { enum: ["green", "yellow", "red"] }, nextStep: nextSchema }, ["task", "tasks", "trafficLight", "stateNote", "nextStep"]),
@@ -395,7 +327,7 @@ function runMeta(operation, requestId) {
   if (operation === "capabilities") {
     return okResponse(requestId, {
       capabilities: { pure: true, stateless: true, networkRequired: false, filesystemRequired: false,
-        operations: [...PURE_OPERATIONS], orgSchema: ORG_SCHEMA, taskSchema: TASK_SCHEMA, testEvidenceSchema: TEST_EVIDENCE_SCHEMA, fixedAgents: ["board", "dispatcher", "ops", "security-guard", "coordinator"],
+        operations: [...PURE_OPERATIONS], orgSchema: ORG_SCHEMA, taskSchema: TASK_SCHEMA, testEvidenceSchema: TEST_EVIDENCE_SCHEMA, fixedAgents: ["board"],
         trafficLights: ["green", "yellow", "red"], stateHolder: "caller", coordinator: { command: "cli-swarm local", capabilitiesOperation: "capabilities", stateBoundary: ".coord", messageTypes: ["range-declare", "conflict-alert", "lock-granted", "lock-denied", "baseline-handshake", "need-human", "dependency-wait"] },
         workerRecommendation: "maximum acyclic dependency level width, capped at 50" }, operationSchemas: OPERATION_SCHEMAS, skill: { name: COMPILER_NAME, version: COMPILER_VERSION },
       nextStep: { operation: "intake", instruction: "Ask the intake questions, then build the org-chart and dispatch tasks." } });
@@ -409,8 +341,10 @@ function runPlanning(operation, requestId, input, request) {
     const findings = validateOrgChart(org);
     if (findings.length) return blockedResponse(requestId, request, findings);
     const blueprintEnabled = input.blueprintEnabled === true || text(input.blueprintEnabled).toLowerCase() === "yes";
-    return okResponse(requestId, { org, blueprintEnabled, fixedAgents: ["board", "dispatcher", "ops", "security-guard", "coordinator"], workerCount: org.layers.execution.length,
-      nextStep: blueprintEnabled
+    return okResponse(requestId, { org, blueprintEnabled, fixedAgents: ["board"], workerCount: org.layers.execution.length,
+      nextStep: org.layers.execution.length === 0
+        ? { operation: null, instruction: "Continue with the main agent. No justified independent work requires subagents; logical management roles do not create agents." }
+        : blueprintEnabled
         ? { operation: "blueprint-bridge", instruction: "Blueprint is enabled: call blueprint-bridge to plan the project JSON into a traceable blueprint, then dispatch its tasks to the swarm." }
         : { operation: "dispatch", instruction: "Feed the project JSON; dispatch backlog tasks to workers by dependency order." } });
   }
@@ -423,7 +357,7 @@ function runPlanning(operation, requestId, input, request) {
 function runTaskMutation(operation, requestId, input, request) {
   const tasks = Array.isArray(input.tasks) ? input.tasks : [], taskId = text(input.taskId);
   if (operation === "dispatch") {
-    const result = dispatchTask(tasks, taskId, text(input.workerId), text(input.actorRole || "dispatcher"));
+    const result = dispatchTask(tasks, taskId, text(input.workerId), text(input.actorRole), input.facts);
     if (!result.ok) return blockedResponse(requestId, request, [finding("P0", "DISPATCH_FAILED", input.taskId, result.error, { example: { taskId: "task-0001", workerId: "worker-001" } })]);
     return okResponse(requestId, { task: result.task, tasks, stateNote: STATE_NOTE, nextStep: { operation: "claim", instruction: "The worker can now claim the task." } });
   }
@@ -455,7 +389,7 @@ function runObservation(operation, requestId, input, request) {
   }
   if (operation === "traffic-light") return okResponse(requestId, { trafficLight: taskTrafficLight(input.task ?? {}),
       rules: {
-        green: "status is reported or accepted and every TestEvidence item is valid with exitCode 0",
+        green: "status is accepted with task-bound signed TestEvidence verified by Validator",
         yellow: "backlog, assigned, claimed, running, or reported without passing TestEvidence",
         red: "status is \"failed\", \"blocked\", or \"cancelled\"" } });
   if (operation === "security-check") {
@@ -480,7 +414,7 @@ function runObservation(operation, requestId, input, request) {
   const task = tasks.find((candidate) => candidate.taskId === taskId);
   if (!task) return blockedResponse(requestId, request, [finding("P0", "RECLAIM_FAILED", taskId, `task ${taskId} not found`, { example: { taskId: "task-0001" } })]);
   if (task.status === "backlog") return blockedResponse(requestId, request, [finding("P1", "RECLAIM_NOOP", taskId, `task ${taskId} is already backlog`, { example: { taskId: "task-0001" } })]);
-  task.status = "backlog"; task.owner = null;
+  if (!reclaimTask(task, task.owner)) return { ...blockedResponse(requestId, request, [finding("P0", "RECLAIM_REQUIRES_RECONCILIATION", taskId, "Only unstarted assignments may be automatically reclaimed")]), task, tasks, stateNote: STATE_NOTE };
   return okResponse(requestId, { reclaimed: true, taskId, reason, task, tasks, stateNote: STATE_NOTE });
 }
 export async function run(request) {

@@ -18,6 +18,9 @@ export function resumeView(state, task) {
     goalDigest: routing.descriptionDigest, goalRevision: routing.revision,
     remainingRequirements: remaining.original, nextAction: routing.nextAction,
     checkpointAt: routing.checkpointAt, status: task.status,
+    continuationNotifications: state.messages.filter(item => item.type === 'task-continuation'
+      && item.payload.taskId === task.taskId && item.payload.chainId === task.chainId
+      && item.to === task.agentId),
     canContinue: task.status === 'active' && routing.handoff === null
       && !pendingDecision(state, task) && !hasActiveWait(state, task),
     completionAllowed: !remaining.original.length && !remaining.pending.length && routing.handoff === null,
