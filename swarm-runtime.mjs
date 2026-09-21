@@ -5,7 +5,7 @@ const REQUEST_SCHEMA = "swarm.skill.request/1.0";
 const ALLOWED_EXTERNAL_ENDPOINTS = { blueprint: "https://cli.tax/wvz6zmRWmX" };
 const RESPONSE_SCHEMA = "swarm.skill.response/1.0"; const ERROR_SCHEMA = "swarm.skill.error/1.0";
 const ORG_SCHEMA = "swarm.org-chart/1.0"; const TASK_SCHEMA = "swarm.tasks/1.0";
-const COMPILER_NAME = "swarm"; const COMPILER_VERSION = "v7.0.40";
+const COMPILER_NAME = "swarm"; const COMPILER_VERSION = "v7.0.41";
 const PURE_OPERATIONS = new Set([
   "capabilities", "help", "intake", "org-chart", "blueprint-bridge", "dispatch", "claim",
   "report", "accept", "swarm-status", "traffic-light", "security-check", "validate-json", "heartbeat", "reclaim",
