@@ -3,6 +3,7 @@ import { withCoordinationState, withCoordinationReadLock } from './swarm-coordin
 import { findTask, requireString } from './swarm-coordinator-model.mjs'
 import { pendingDecision, hasActiveWait } from './swarm-coordinator-waits.mjs'
 import { TASK_HANDOFF_HANDLERS } from './swarm-task-handoff.mjs'
+import { PEER_COORDINATION_HANDLERS, peerNotifications } from './swarm-peer-coordination.mjs'
 import { TASKS_SCHEMA, REQUEST_SCHEMA, TERMINAL_REQUESTS, routingError, digest, strings, identity,
   describedTask, requests, requestedTask, accessRequest, sourceRequest, targetRequest, event,
   receipt, requestView, deliveryView, initialRouting, normalizeMessage, selectOwner, completionPending } from './swarm-task-routing-model.mjs'
@@ -14,6 +15,8 @@ export function resumeView(state, task) {
   const routing = task.routing
   const relevant = requests(state)
   const remaining = completionPending(state, task)
+  const activePeerIntents = state.messages.filter(item => item.schemaVersion === 'swarm.peer-intent/1.0'
+    && item.taskId === task.taskId && item.status === 'active')
   return { ...identity(task), schemaVersion: TASKS_SCHEMA, goal: routing.goal,
     goalDigest: routing.descriptionDigest, goalRevision: routing.revision,
     remainingRequirements: remaining.original, nextAction: routing.nextAction,
@@ -21,9 +24,14 @@ export function resumeView(state, task) {
     continuationNotifications: state.messages.filter(item => item.type === 'task-continuation'
       && item.payload.taskId === task.taskId && item.payload.chainId === task.chainId
       && item.to === task.agentId),
+    peerNotifications: peerNotifications(state, task),
+    activePeerIntents: activePeerIntents.map(item => ({ intentId: item.intentId, paths: item.paths,
+      blockedPaths: item.blockedPaths, priority: item.priority, claimedPaths: item.claimedPaths,
+      expiresAt: item.expiresAt })),
     canContinue: task.status === 'active' && routing.handoff === null
       && !pendingDecision(state, task) && !hasActiveWait(state, task),
-    completionAllowed: !remaining.original.length && !remaining.pending.length && routing.handoff === null,
+    completionAllowed: !remaining.original.length && !remaining.pending.length
+      && routing.handoff === null && !activePeerIntents.length,
     inbox: relevant.filter(item => item.targetTaskId === task.taskId && !TERMINAL_REQUESTS.has(item.status)).map(requestView),
     outbox: relevant.filter(item => item.sourceTaskId === task.taskId && !TERMINAL_REQUESTS.has(item.status)).map(requestView),
     handoffs: relevant.filter(item => item.handoffTaskId === task.taskId && !TERMINAL_REQUESTS.has(item.status)).map(requestView) }
@@ -174,5 +182,6 @@ export const TASK_ROUTING_HANDLERS = Object.freeze({
   'task-describe': describeTask, 'task-checkpoint': checkpointTask, 'task-resume': resumeTask,
   'message-route': routeMessage, 'message-status': messageStatus, 'message-delivery-start': startDelivery,
   'message-delivery-report': reportDelivery, 'message-accept': acceptMessage, 'message-resolve': resolveMessage,
+  ...PEER_COORDINATION_HANDLERS,
   ...TASK_HANDOFF_HANDLERS,
 })

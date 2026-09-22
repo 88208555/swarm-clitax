@@ -7,6 +7,8 @@ swarm — 智能体蜂群编排 skill（CLI.Tax 发布）。
 - 固定运维智能体：心跳检测、回收卡死智能体、派新智能体继承任务续跑
 - 固定安全守卫智能体：注入/危险指令检测、异常警报
 - 固定协调智能体：`.coord/` 任务卡、冲突扫描、文件/构建锁、基线握手、依赖等待、超时与死锁处置
+- 同级任务协商：background/normal/high/urgent 四级排序；重叠路径等待、非冲突路径继续，双方自主通知
+- 超时重排：固定幂等键请求一个新任务窗口并自动派发；只允许一层派生，禁止旧任务来回切换
 
 ```bash
 npx cli-swarm@latest install
@@ -19,6 +21,8 @@ cli-swarm local capabilities /absolute/repository/path
 ```
 
 其余操作从 stdin 接收 capabilities 返回 Schema 对应的 JSON；协调事实只写入 `.coord/`，不依赖对话上下文。
+
+并发写入使用 `peer-coordinate → lock-acquire → guarded-write → lock-release → peer-complete`。高优先任务可越过尚未拿锁的等待项；已有签名锁只能由占用方在安全检查点释放。等待方通过 `peer-status` 取得 `refetchPaths`，重新读取基线、创建新鲜 Aimlock 快照并申请新锁后继续。超过显式 `coordinationTimeoutMs` 后，宿主消费唯一 `spawnRequest` 创建新任务窗口并以 `peer-spawn-bind` 迁移阻塞路径；派生任务不能再次派生。协调消息本身不授予写权限。
 
 
 也可以直接从 CLI.Tax 对象存储安装（与站点「安装命令」一致）：

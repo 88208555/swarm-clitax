@@ -1,5 +1,6 @@
 import { TASK_ROUTING_SCHEMAS } from './swarm-task-routing-schemas.mjs'
 import { TASK_ROUTING_HANDLERS } from './swarm-task-routing.mjs'
+import { authorizePeerLock } from './swarm-peer-coordination.mjs'
 import { createHash, randomUUID, verify } from 'node:crypto'
 import { lstat, readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
@@ -37,6 +38,7 @@ const LOCK_SCHEMA = objectSchema(
     lockType: { enum: ['file', 'build', 'deploy'] }, resource: nullableString, paths: stringArray,
     ttlSeconds: { type: 'integer', minimum: 1, maximum: 3600 }, queueOnConflict: { type: 'boolean' },
     baselineHandshakeId: nullableString,
+    peerIntentId: nullableString,
     queueTimeoutMs: { type: 'integer', minimum: 1, description: 'Explicit maximum time in the queue; required when queueOnConflict=true.' } },
 )
 LOCK_SCHEMA.allOf = [{ if: { properties: { queueOnConflict: { const: true } } },
@@ -143,11 +145,13 @@ async function grantLock(state, root, request, now) {
     leaseId, lockId, chainId: request.chainId, agentId: request.agentId,
     lockType: request.lockType, resource: request.resource, paths: request.paths,
     issuedAt, expiresAt, nonce: randomUUID(),
+    ...(request.peerIntentId ? { peerIntentId: request.peerIntentId } : {}),
   }, sha256)
   const lock = { schemaVersion: 'swarm.coord-lock/1.0', lockId, leaseId,
     leasePath: lease.relativeLeasePath, taskId: request.taskId, chainId: request.chainId,
     agentId: request.agentId, lockType: request.lockType, resource: request.resource,
     paths: request.paths, status: 'active', issuedAt, expiresAt, releasedAt: null }
+  if (request.peerIntentId) lock.peerIntentId = request.peerIntentId
   state.locks.push(lock)
   addMessage(state, 'lock-granted', 'coordinator', request.agentId, { lockId, leaseId, expiresAt }, now)
   return { lock, leasePath: lease.relativeLeasePath, lease: lease.signedLease }
@@ -167,6 +171,7 @@ async function acquireLock(repositoryRoot, input) {
     if (!validHandshake(task, request)) {
       coordinatorError('SWARM_COORD_BASELINE_HANDSHAKE_REQUIRED', 'build and deploy locks require the current baseline handshake')
     }
+    authorizePeerLock(state, request)
     const conflicts = state.locks.filter((lock) => locksConflict(request, lock))
     if (!conflicts.length) {
       const granted = await grantLock(state, root, request, new Date().toISOString())
@@ -201,6 +206,7 @@ async function renewLock(repositoryRoot, input) {
     }
     lock.status = 'renewed'
     const request = { ...lock, ttlSeconds: input.ttlSeconds }
+    authorizePeerLock(state, request)
     const granted = await grantLock(state, root, request, new Date().toISOString())
     return { state, output: { schemaVersion: LOCAL_SCHEMA, status: 'renewed', ...granted },
       audit: [{ event: 'lock-renewed', previousLockId: lockId, lockId: granted.lock.lockId }] }
@@ -279,11 +285,11 @@ async function checkedQueueGrant(state, queued, root) {
   const grant = queued.grant
   const lock = grant && state.locks.find((entry) => entry.lockId === grant.lockId)
   const request = queued.request
-  const fields = ['taskId', 'chainId', 'agentId', 'lockType', 'resource']
+  const fields = ['taskId', 'chainId', 'agentId', 'lockType', 'resource', 'peerIntentId']
   if (!lock || fields.some((field) => lock[field] !== request[field])
     || JSON.stringify(lock.paths) !== JSON.stringify(request.paths)
     || lock.leasePath !== grant.leasePath || !grant.lease
-    || ['lockId', 'leaseId', 'chainId', 'agentId', 'lockType', 'resource', 'issuedAt', 'expiresAt']
+    || ['lockId', 'leaseId', 'chainId', 'agentId', 'lockType', 'resource', 'peerIntentId', 'issuedAt', 'expiresAt']
       .some((field) => lock[field] !== grant.lease[field])
     || JSON.stringify(lock.paths) !== JSON.stringify(grant.lease.paths)) {
     coordinatorError('SWARM_COORD_QUEUE_GRANT_INVALID', 'queued grant does not match its original request and current lease')

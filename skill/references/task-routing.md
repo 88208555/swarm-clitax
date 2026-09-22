@@ -11,6 +11,14 @@
 
 Legacy tasks without descriptions are explicitly undescribed and cannot originate routing requests. They are not assigned guessed goals or hosts. Existing unrelated workflows retain previous completion semantics.
 
+## Peer coordination is not delegation
+
+Message routing decides who owns a new user requirement. Peer coordination only serializes overlapping writes between tasks that already own their work. Use `peer-coordinate`, `peer-status`, and `peer-complete` for collisions; do not create a message request, forced takeover, handoff, or subtask merely because two tasks touch the same path.
+
+Both tasks keep their original goals and continue non-overlapping paths. Every intent declares `background`, `normal`, `high`, or `urgent`; higher priority overtakes only work that has not acquired a signed lock. An urgent collision with an active lock requests the owner's next safe checkpoint rather than revoking an in-flight write. `peer-conflict`, `peer-request`, `peer-priority`, and `peer-ready` are durable coordination notices, not assignments. A ready notice requires a fresh baseline read, a fresh Aimlock snapshot, and a real signed file lock before writing. When the urgent task completes, the next queued task is notified and remains part of its original goal.
+
+Every peer intent also declares `coordinationTimeoutMs`. A timed-out status emits one idempotent `spawnRequest` for a new task window. The host registers and describes that window, then calls `peer-spawn-bind` to move only the blocked paths. The spawned intent has a one-level loop guard and cannot create another task; a repeated timeout is reported without switching between the original tasks.
+
 ## Incoming user message
 
 Before executing a new requirement, call `message-route` with the source task identity plus:

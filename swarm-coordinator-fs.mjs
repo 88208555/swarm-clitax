@@ -212,6 +212,7 @@ function leasePayload(lease) {
     expiresAt: lease.expiresAt,
     authorityKeyId: lease.authorityKeyId,
     nonce: lease.nonce,
+    ...(lease.peerIntentId ? { peerIntentId: lease.peerIntentId } : {}),
   }
 }
 

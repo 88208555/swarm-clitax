@@ -3,7 +3,7 @@
     "cli-swarm": "./cli.mjs"
   },
   "dependencies": {
-    "cli-validator": "7.0.41"
+    "cli-validator": "7.0.42"
   },
   "description": "Swarm skill installer for CLI.Tax: orchestrate N sub-agents with persistent AutoCoord locks and dependency waits.",
   "exports": {
@@ -33,6 +33,7 @@
     "swarm-task-routing-model.mjs",
     "swarm-task-routing-schemas.mjs",
     "swarm-task-routing.mjs",
+    "swarm-peer-coordination.mjs",
     "swarm-task-handoff.mjs",
     "swarm-runtime.mjs",
     "swarm-task-policy.mjs",
@@ -52,5 +53,5 @@
     "url": "https://github.com/88208555/swarm-clitax.git"
   },
   "type": "module",
-  "version": "7.0.41"
+  "version": "7.0.42"
 }

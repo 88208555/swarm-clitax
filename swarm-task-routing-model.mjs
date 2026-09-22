@@ -157,7 +157,9 @@ export function assertTaskRequestsCompleted(state, task) {
   if (!task.routing) return
   if (task.routing.schemaVersion !== ROUTING_SCHEMA) routingError('STATE_INVALID', 'unknown task routing schema')
   const remaining = completionPending(state, task)
-  if (remaining.original.length || remaining.pending.length || task.routing.handoff !== null) {
+  const activePeerIntents = state.messages.filter(message => message.schemaVersion === 'swarm.peer-intent/1.0'
+    && message.taskId === task.taskId && message.status === 'active')
+  if (remaining.original.length || remaining.pending.length || task.routing.handoff !== null || activePeerIntents.length) {
     routingError('TASK_INCOMPLETE', 'original requirements or routed requests remain unfinished')
   }
 }

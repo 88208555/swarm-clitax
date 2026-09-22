@@ -12,6 +12,12 @@ const MESSAGE_TYPES = new Set([
   'baseline-handshake',
   'need-human',
   'dependency-wait',
+  'peer-conflict',
+  'peer-request',
+  'peer-ready',
+  'peer-priority',
+  'peer-timeout',
+  'peer-spawned',
 ])
 const WAIT_TIMEOUT_ACTIONS = new Set(['escalate-need-human', 'abandon-wait', 'continue-after-timeout'])
 const WAIT_EVENT_ACTIONS = new Set(['wake-with-package'])
@@ -217,6 +223,8 @@ function normalizeLockRequest(input) {
     && (typeof input.baselineHandshakeId !== 'string' || !input.baselineHandshakeId.trim())) {
     coordinatorError('SWARM_COORD_HANDSHAKE_INVALID', 'baselineHandshakeId must be null or a non-empty string')
   }
+  const peerIntentId = Object.hasOwn(input, 'peerIntentId') && input.peerIntentId !== null
+    ? identifier(input.peerIntentId, 'peerIntentId') : null
   return {
     taskId: identifier(input.taskId, 'taskId'),
     agentId: identifier(input.agentId, 'agentId'),
@@ -228,6 +236,7 @@ function normalizeLockRequest(input) {
     queueOnConflict: input.queueOnConflict,
     ...(hasQueueTimeout ? { queueTimeoutMs: input.queueTimeoutMs } : {}),
     baselineHandshakeId: input.baselineHandshakeId,
+    ...(peerIntentId === null ? {} : { peerIntentId }),
   }
 }
 

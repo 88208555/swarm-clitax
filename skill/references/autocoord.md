@@ -24,6 +24,23 @@
 - 队列到期后扫描记录 timed-out、向等待方写入 lock-denied 消息，并生成 need-human/Confirm 请求；宿主需呈现该请求。旧队列不再授锁，人工恢复任务后仍须提交带新明确时限的申请。旧版缺少 deadlineAt 的队列明确拒绝；不借用 eta 或租约 TTL。
 - 排队期间任务终止或原构建/部署基线握手改变，后续扫描将该请求明确标记 rejected。已授锁但释放、续期或到期后，原队列不能被用作新授权。
 
+## 同级任务路径协商
+
+多个已登记任务可能同时触及共享文件，但协调不是派单、handoff 或目标接管。每个任务保留自己的 goal、requirements、checkpoint 与执行权，并使用以下协议：
+
+1. 写入前调用 `peer-coordinate`，提交唯一 `intentId`、精确 `paths`、当前 `baselineHash`、意图 TTL、`coordinationTimeoutMs`、期望文件锁 TTL 与明确 `priority`。四级优先级从低到高为 `background`、`normal`、`high`、`urgent`；同级按持久台账中的登记顺序执行。
+2. 返回的 `readyPaths` 可继续，`blockedPaths` 只冻结发生碰撞的路径。`partial` 表示任务必须继续处理非冲突部分，不能把整个任务静默挂起。
+3. `lockRequest` 只是下一步申请参数；宿主仍须调用 `lock-acquire` 获得签名租约，并让 Aimlock `guarded-write` 校验租约。软意图和协调消息从不授予写权限。
+4. 占用方到达安全检查点后先释放所有重叠文件锁，再调用 `peer-complete`。协调器向受影响的同级任务持久发送 `peer-ready`，不改变任何任务的归属、目标或状态。
+5. 等待方调用 `peer-status`。新释放的路径通过 `refetchPaths` 返回，并标记 `freshAimlockSnapshotRequired=true`；宿主重新读取文件、创建新鲜 Aimlock 快照，再申请新的文件锁并继续。
+6. 相同 `intentId` 与相同输入幂等返回；同 ID 内容变化明确拒绝。活动意图过期后必须登记新意图，不能把旧通知或旧租约当成授权。
+
+若重叠路径到达 `coordinationTimeoutMs` 仍未就绪，`peer-status` 只生成一次持久 `peer-timeout` 与 `swarm.peer-spawn-request/1.0`。宿主按 `idempotencyKey` 自动创建一个新的任务窗口，保留 owner/project/host、原目标和未完成验收项，随后登记新任务并调用 `peer-spawn-bind`。绑定后，超时路径从原意图移动到新意图；新任务必须重新读取文件并取得自己的 Aimlock 快照和签名锁。派生意图固定 `spawnDepth=1`、`spawnAllowed=false`，再次超时只回传阻塞信息，禁止在原两个任务间切换或递归创建窗口。创建窗口或派发结果不确定时，查询同一 `spawnRequestId`，不得重建第二个窗口。
+
+优先级只调整尚未开工的重叠路径。更高等级意图可以越过尚未取得真实文件锁的低级等待项，对方收到持久 `peer-priority` 通知并保留在队列中；其旧 `lockRequest` 会因不再就绪而拒绝。若低级任务已经持有签名文件锁，高级任务不能强行撤销正在进行的写入：`urgent` 返回 `safeCheckpointRequested=true`，占用方收到带相同信号的 `peer-request`，应尽快完成原子写入、释放锁并调用 `peer-complete`。协调器随后只唤醒当前最高优先且同级最早的任务；该任务完成后继续唤醒下一项，直到普通与后台任务全部恢复，禁止插队后遗失原队列。
+
+`task-resume.peerNotifications` 保存 `peer-conflict`、`peer-request`、`peer-priority`、`peer-ready`、`peer-timeout` 与 `peer-spawned`，`activePeerIntents` 保存仍需完成的优先级、路径、已占用路径和期限。通知发给冲突双方用于自主沟通，接收方不因此成为请求方的执行者。任务完成前必须结束自己的活动 peer intent；活动真实文件锁存在时 `peer-complete` 明确拒绝。
+
 ## 依赖等待
 
 等待前调用 `dependency-wait`，明确 `waiter`、`waitFor`、结构化 `event`、`expectedWithinMs`、到达/超时策略和 `refetchPaths`。活动等待及尚未完成的真人裁决必须阻断对应 chain 的受控工作，不能只发提醒后继续执行。
@@ -55,5 +72,6 @@
 - Confirm Protocol 返回结构化请求和答案协议；系统原生弹窗、跨任务消息投递与实际 callback 执行由宿主接入负责。
 - Aimlock 的读写阻断仅适用于经过其受控入口的操作；不得声称拦截所有 IDE 或操作系统文件读写。
 - 宿主退出、进程中断或结果尚未投递时，恢复后先读取台账并继续协调；不得将“未收到消息”解释为任务已完成。
+- 没有后台常驻服务时，阻塞方必须在恢复点或宿主轮询中调用 `peer-status`；技能不会伪称能主动唤醒未接入的 IDE。
 
 等待必须经事件到达、终止通知、超时处置、显式取消或死锁裁决退出。保留声明、处置和裁决证据，禁止无限期静默挂起。
