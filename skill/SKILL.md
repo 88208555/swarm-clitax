@@ -5,7 +5,7 @@ description: '按业务必要性编排实质性独立任务，默认主代理执
 
 # swarm
 
-Package version: v7.0.42
+Package version: v7.0.43
 
 把「项目需求」编排为一支可观测、可自治、可安全运转的智能体蜂群。
 
