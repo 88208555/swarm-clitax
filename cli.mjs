@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { realpathSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { stdin } from 'node:process'
 import { fileURLToPath } from 'node:url'
@@ -58,7 +59,7 @@ async function runLocalCoordinator(args) {
 }
 
 const cliPath = fileURLToPath(import.meta.url)
-if (process.argv[1] && resolve(process.argv[1]) === cliPath && process.argv[2] === 'local') {
+if (process.argv[1] && realpathSync(resolve(process.argv[1])) === cliPath && process.argv[2] === 'local') {
   try {
     console.log(JSON.stringify(await runLocalCoordinator(process.argv.slice(3))))
   } catch (error) {

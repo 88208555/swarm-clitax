@@ -17,7 +17,7 @@ npx cli-swarm@latest install
 本地 AutoCoord 首次调用：
 
 ```bash
-cli-swarm local capabilities /absolute/repository/path
+npx cli-swarm@latest local capabilities /absolute/repository/path
 ```
 
 其余操作从 stdin 接收 capabilities 返回 Schema 对应的 JSON；协调事实只写入 `.coord/`，不依赖对话上下文。

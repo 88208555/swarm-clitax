@@ -5,7 +5,7 @@ const REQUEST_SCHEMA = "swarm.skill.request/1.0";
 const ALLOWED_EXTERNAL_ENDPOINTS = { blueprint: "https://cli.tax/wvz6zmRWmX" };
 const RESPONSE_SCHEMA = "swarm.skill.response/1.0"; const ERROR_SCHEMA = "swarm.skill.error/1.0";
 const ORG_SCHEMA = "swarm.org-chart/1.0"; const TASK_SCHEMA = "swarm.tasks/1.0";
-const COMPILER_NAME = "swarm"; const COMPILER_VERSION = "v7.0.43";
+const COMPILER_NAME = "swarm"; const COMPILER_VERSION = "v7.0.44";
 const PURE_OPERATIONS = new Set([
   "capabilities", "help", "intake", "org-chart", "blueprint-bridge", "dispatch", "claim",
   "report", "accept", "swarm-status", "traffic-light", "security-check", "validate-json", "heartbeat", "reclaim",
@@ -328,7 +328,7 @@ function runMeta(operation, requestId) {
     return okResponse(requestId, {
       capabilities: { pure: true, stateless: true, networkRequired: false, filesystemRequired: false,
         operations: [...PURE_OPERATIONS], orgSchema: ORG_SCHEMA, taskSchema: TASK_SCHEMA, testEvidenceSchema: TEST_EVIDENCE_SCHEMA, fixedAgents: ["board"],
-        trafficLights: ["green", "yellow", "red"], stateHolder: "caller", coordinator: { command: "cli-swarm local", capabilitiesOperation: "capabilities", stateBoundary: ".coord", messageTypes: ["range-declare", "conflict-alert", "lock-granted", "lock-denied", "baseline-handshake", "need-human", "dependency-wait"] },
+        trafficLights: ["green", "yellow", "red"], stateHolder: "caller", coordinator: { command: "npx cli-swarm@latest local", capabilitiesOperation: "capabilities", stateBoundary: ".coord", messageTypes: ["range-declare", "conflict-alert", "lock-granted", "lock-denied", "baseline-handshake", "need-human", "dependency-wait"] },
         workerRecommendation: "maximum acyclic dependency level width, capped at 50" }, operationSchemas: OPERATION_SCHEMAS, skill: { name: COMPILER_NAME, version: COMPILER_VERSION },
       nextStep: { operation: "intake", instruction: "Ask the intake questions, then build the org-chart and dispatch tasks." } });
   }

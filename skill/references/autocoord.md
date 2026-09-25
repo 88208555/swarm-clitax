@@ -1,6 +1,6 @@
 # AutoCoord 协调协议
 
-本地入口：`cli-swarm local <operation> <repositoryRoot>`，JSON 从 stdin 传入。先调用 `capabilities`，按返回的 `operationSchemas` 构造请求。
+本地入口：`npx cli-swarm@latest local <operation> <repositoryRoot>`，JSON 从 stdin 传入。先调用 `capabilities`，按返回的 `operationSchemas` 构造请求。
 
 ## 唯一事实源
 
@@ -8,6 +8,8 @@
 - `.coord/leases/`：Ed25519 签名短期租约；释放、续期或 TTL 到期后旧租约立即失效。
 - `.coord/audit.jsonl`：全部协调动作的只追加审计。
 - 协调承诺不得只写在对话；上下文被清空后必须从台账恢复。
+
+纯只读探测不需要建立写入意图或调用冲突扫描；多个任务准备写入共享范围时才进行同级协调。
 
 ## 任务卡与冲突
 

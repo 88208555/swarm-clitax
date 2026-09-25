@@ -1,6 +1,6 @@
 # Task ownership and message continuity
 
-`cli-swarm local <operation> <coordinationRoot>` accepts JSON stdin. Read `capabilities` for exact schemas. Aimlock exposes these operations as `cli-aimlock tasks <operation> <coordinationRoot>`. All participating tasks must use the same authorized coordinator; task, agent, chain and host thread IDs are distinct.
+`npx cli-swarm@latest local <operation> <coordinationRoot>` accepts JSON stdin. Read `capabilities` for exact schemas. Aimlock exposes these operations as `npx cli-aimlock@latest tasks <operation> <coordinationRoot>`. All participating tasks must use the same authorized coordinator; task, agent, chain and host thread IDs are distinct.
 
 ## Register and recover
 
